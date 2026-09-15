@@ -1,126 +1,122 @@
 import { useMemo, useState } from "react";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
-import type { Employee, EmploymentType } from "../types";
-import { splitTargetHours } from "../lib/splitTargetHours";
+import type { BaseSchedule, Employee, EmploymentType } from "../types";
 import { WEEKDAY_SHORT_VI, type WeekdayKey } from "../lib/demand";
-import { monthlyTargetMinutesFor } from "../lib/contract";
+import { baseMinutesOn, baseMinutesPerWeek, monthlyTargetMinutesFor } from "../lib/contract";
 import { employmentLabelVi, employmentShortVi } from "../lib/employment";
 import { minutesToShortHours, minutesToTime, timeToMinutes } from "../lib/time";
-import type { WorkHoursConfig } from "../lib/workHours";
+import { effectiveWeekdayKey, type DayWindow, type WorkHoursConfig } from "../lib/workHours";
+import { publicHolidays } from "../lib/holidays";
+import { hasStarted } from "../lib/availability";
 
 const inputClass =
   "rounded border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500";
 
-/** Voreinstellung der festen Schicht, wenn eingeschaltet: 6:30–14:30. */
-const FIXED_START_DEFAULT = "06:30";
-const FIXED_END_DEFAULT = "14:30";
+const WEEKDAY_ORDER: WeekdayKey[] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
-const WEEKDAY_ORDER: WeekdayKey[] = [
-  "monday",
-  "tuesday",
-  "wednesday",
-  "thursday",
-  "friday",
-  "saturday",
-  "sunday",
-];
-
-/** Số ngày làm (= số ca) cho một mục tiêu, hoặc thông báo lỗi. */
-function splitInfo(targetHours: number, type: EmploymentType): { ok: boolean; text: string } {
-  if (targetHours <= 0) return { ok: true, text: "—" };
-  try {
-    const parts = splitTargetHours(Math.round(targetHours), type);
-    return { ok: true, text: `${parts.length} ca` };
-  } catch (e) {
-    return { ok: false, text: e instanceof Error ? e.message : "không hợp lệ" };
-  }
-}
+type BlockDraft = { start: string; end: string };
 
 /**
- * Entwurf, während im Blatt getippt wird. Die Wochenstunden sind ein STRING,
- * damit man das Feld leeren kann, ohne dass es auf 0 zurückspringt.
+ * Entwurf, während im Blatt getippt wird. Die Stunden sind ein STRING, damit
+ * man das Feld leeren und „43,5" mit Komma tippen kann.
  */
 type Draft = {
   name: string;
   employmentType: EmploymentType;
-  weekly: string;
-  fixed: boolean;
-  fixedStart: string; // "HH:MM"
-  fixedEnd: string; // "HH:MM"
-  availableWeekdays: WeekdayKey[]; // [] = mọi ngày
-  maxDays: string;
+  unit: "week" | "month";
+  hours: string;
+  adjustable: boolean;
+  base: Record<WeekdayKey, BlockDraft[]>;
   startDate: string; // "yyyy-MM-dd" hoặc "" = từ đầu tháng
 };
 
+const hoursText = (value: number) => String(Math.round(value * 100) / 100).replace(".", ",");
+
+function parseHours(text: string): number {
+  const value = Number(text.trim().replace(",", "."));
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
 function draftFrom(emp?: Employee): Draft {
+  const base = Object.fromEntries(
+    WEEKDAY_ORDER.map((key) => [
+      key,
+      (emp?.baseSchedule?.[key] ?? []).map((b) => ({ start: minutesToTime(b.startMinutes), end: minutesToTime(b.endMinutes) })),
+    ]),
+  ) as Record<WeekdayKey, BlockDraft[]>;
+  const weekly = emp?.weeklyHours != null;
   return {
     name: emp?.name ?? "",
-    employmentType: emp?.employmentType ?? "VOLLZEIT",
-    weekly: emp?.weeklyHours != null ? String(emp.weeklyHours) : "39",
-    fixed: !!emp?.fixedShift,
-    // Vorhandene feste Schicht übernehmen, sonst die Voreinstellung anzeigen.
-    fixedStart: emp?.fixedShift ? minutesToTime(emp.fixedShift.startMinutes) : FIXED_START_DEFAULT,
-    fixedEnd: emp?.fixedShift ? minutesToTime(emp.fixedShift.endMinutes) : FIXED_END_DEFAULT,
-    availableWeekdays: emp?.availableWeekdays ?? [],
-    maxDays: emp?.maxDaysPerWeek ? String(emp.maxDaysPerWeek) : "",
+    employmentType: emp?.employmentType ?? "TEILZEIT",
+    unit: weekly ? "week" : "month",
+    hours: emp ? hoursText(weekly ? emp.weeklyHours! : emp.targetMinutes / 60) : "",
+    adjustable: emp?.adjustable ?? false,
+    base,
     startDate: emp?.startDate ?? "",
   };
 }
 
-/** Tóm tắt các thiết lập „Nâng cao" đang bật (dòng dưới tiêu đề), hoặc null nếu chưa đặt gì. */
-function advancedSummary(d: Draft): string | null {
-  const parts: string[] = [];
-  if (d.fixed) parts.push(`ca cố định ${d.fixedStart}–${d.fixedEnd}`);
-  if (d.availableWeekdays.length > 0 && d.availableWeekdays.length < WEEKDAY_ORDER.length) {
-    const days = WEEKDAY_ORDER.filter((key) => d.availableWeekdays.includes(key)).map((key) => WEEKDAY_SHORT_VI[key]);
-    parts.push(`làm ${days.join(", ")}`);
-  }
-  if (Number(d.maxDays) >= 1) parts.push(`tối đa ${Math.min(7, Math.round(Number(d.maxDays)))} ngày/tuần`);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(d.startDate)) {
-    const [year, month, day] = d.startDate.split("-");
-    parts.push(`vào làm ${day}.${month}.${year}`);
-  }
-  return parts.length > 0 ? parts.join(" · ") : null;
-}
-
-/** Wandelt "HH:MM" in Minuten; bei Unsinn die Voreinstellung. */
-function safeMinutes(time: string, fallback: string): number {
+function windowOf(block: BlockDraft): DayWindow | null {
   try {
-    return timeToMinutes(time);
+    const startMinutes = timeToMinutes(block.start);
+    const endMinutes = timeToMinutes(block.end);
+    return endMinutes > startMinutes ? { startMinutes, endMinutes } : null;
   } catch {
-    return timeToMinutes(fallback);
+    return null;
   }
 }
 
 /** Entwurf -> Mitarbeiter-Felder (ohne id). */
 function draftToEmployee(d: Draft): Omit<Employee, "id"> {
-  const weekly = Math.max(0, Math.round(Number(d.weekly) || 0));
-  const tage = Number(d.maxDays);
-  const fixedStart = safeMinutes(d.fixedStart, FIXED_START_DEFAULT);
-  const fixedEnd = safeMinutes(d.fixedEnd, FIXED_END_DEFAULT);
+  const hours = parseHours(d.hours);
+  const baseSchedule: BaseSchedule = {};
+  for (const key of WEEKDAY_ORDER) {
+    const blocks = d.base[key].map(windowOf).filter((b): b is DayWindow => b !== null);
+    if (blocks.length > 0) baseSchedule[key] = blocks.sort((a, b) => a.startMinutes - b.startMinutes);
+  }
   return {
     name: d.name.trim() || "Nhân viên mới",
     employmentType: d.employmentType,
-    targetMinutes: 0, // wird je Monat aus weeklyHours abgeleitet (contract.ts)
-    weeklyHours: weekly,
-    // Ende muss nach Beginn liegen – sonst die feste Schicht ignorieren, statt
-    // eine kaputte Zeitspanne zu speichern.
-    fixedShift:
-      d.fixed && fixedEnd > fixedStart
-        ? { startMinutes: fixedStart, endMinutes: fixedEnd }
-        : undefined,
-    availableWeekdays:
-      d.availableWeekdays.length === 0 || d.availableWeekdays.length === 7
-        ? undefined
-        : [...d.availableWeekdays],
-    maxDaysPerWeek: d.maxDays === "" || tage < 1 ? undefined : Math.min(7, Math.round(tage)),
+    targetMinutes: d.unit === "month" ? Math.round(hours * 60) : 0,
+    ...(d.unit === "week" ? { weeklyHours: hours } : {}),
+    ...(Object.keys(baseSchedule).length > 0 ? { baseSchedule } : {}),
+    adjustable: d.adjustable,
     // Leeres Feld = von Monatsanfang an dabei (kein Eintrittsdatum).
-    startDate: /^\d{4}-\d{2}-\d{2}$/.test(d.startDate) ? d.startDate : undefined,
+    ...(/^\d{4}-\d{2}-\d{2}$/.test(d.startDate) ? { startDate: d.startDate } : {}),
   };
 }
 
+const blocksLabel = (blocks: DayWindow[]) =>
+  blocks.map((b) => `${minutesToTime(b.startMinutes)}–${minutesToTime(b.endMinutes)}`).join(" + ");
+
+/** "T3–T6 16:00–21:00 · T7–CN 11:00–14:30 + 17:00–22:00" – gleiche Nachbartage zusammengefasst. */
+export function baseScheduleSummary(base: BaseSchedule | undefined): string {
+  const groups: { from: WeekdayKey; to: WeekdayKey; label: string }[] = [];
+  for (const key of WEEKDAY_ORDER) {
+    const blocks = base?.[key] ?? [];
+    if (blocks.length === 0) continue;
+    const label = blocksLabel(blocks);
+    const last = groups[groups.length - 1];
+    const previousDay = WEEKDAY_ORDER[WEEKDAY_ORDER.indexOf(key) - 1];
+    if (last && last.label === label && last.to === previousDay) last.to = key;
+    else groups.push({ from: key, to: key, label });
+  }
+  return groups
+    .map((g) => `${WEEKDAY_SHORT_VI[g.from]}${g.from === g.to ? "" : `–${WEEKDAY_SHORT_VI[g.to]}`} ${g.label}`)
+    .join(" · ");
+}
+
+/** Bezahlte Minuten des Grundplans an den offenen Tagen dieses Monats (Feiertag = Sonntag). */
+function baseMinutesInMonth(emp: Omit<Employee, "id">, openDates: readonly string[], year: number): number {
+  const holidays = publicHolidays(year);
+  const withId = { ...emp, id: "preview" };
+  return openDates
+    .filter((date) => hasStarted(withId, date))
+    .reduce((sum, date) => sum + baseMinutesOn(withId, effectiveWeekdayKey(date, holidays)), 0);
+}
+
 export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
-  const { schedule, openDays, openDates, addEmployee, updateEmployee, removeEmployee } = store;
+  const { schedule, openDates, addEmployee, updateEmployee, removeEmployee, storeConfig } = store;
   const locked = Boolean(schedule.lockedAt);
 
   // null = zu; "new" = anlegen; sonst = die id, die bearbeitet wird.
@@ -137,11 +133,9 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
     <section className="rounded-lg bg-white border border-slate-200 p-4 sm:p-5 shadow-sm">
       <div className="flex items-center justify-between mb-1">
         <h2 className="text-base font-semibold text-slate-900">
-          Nhân viên
+          Nhân viên · {storeConfig.shortName}
           {schedule.employees.length > 0 && (
-            <span className="ml-2 text-sm font-normal text-slate-400">
-              {schedule.employees.length}
-            </span>
+            <span className="ml-2 text-sm font-normal text-slate-400">{schedule.employees.length}</span>
           )}
         </h2>
         <button
@@ -153,9 +147,9 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
         </button>
       </div>
       <p className="text-xs text-slate-500 mb-4">
-        Giờ nhập theo <b>tuần</b>. Tuần đủ giữ đúng giờ hợp đồng; tuần vắt qua 2 tháng chia theo <b>hệ số ngày</b>
-        (VD T3+T4 cuối tháng ≈ 26% tuần).
-        Tháng này tính định mức trên <b>{openDays}</b> ngày, tối đa 6 ngày mỗi tuần. Bấm vào một người để sửa.
+        Mỗi người có <b>lịch cơ bản</b> theo thứ. Lịch tạo ra theo đúng lịch đó rồi chỉnh cho khớp hợp đồng
+        (theo tuần hoặc theo tháng): thừa thì cắt bớt, thiếu thì kéo dài ca nếu bật <b>Được điều chỉnh</b>.
+        Bấm vào một người để sửa.
       </p>
 
       {locked && (
@@ -176,7 +170,7 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
                 onClick={() => setOffen(emp.id)}
                 className="w-full text-left rounded-lg border border-slate-200 p-3 flex items-center gap-3 hover:bg-slate-50 active:bg-slate-100 transition-colors"
               >
-                <EmployeeSummaryRow emp={emp} openDates={openDates} workHours={schedule.workHours} />
+                <EmployeeSummaryRow emp={emp} openDates={openDates} workHours={schedule.workHours} year={schedule.year} />
                 <span className="text-slate-300 text-lg leading-none">›</span>
               </button>
             </li>
@@ -200,6 +194,7 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
           employee={bearbeitet}
           openDates={openDates}
           workHours={schedule.workHours}
+          year={schedule.year}
           onClose={() => setOffen(null)}
           onSave={(felder) => {
             if (bearbeitet) updateEmployee(bearbeitet.id, felder);
@@ -220,39 +215,48 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
   );
 }
 
-/** Kompakte Zeile in der Liste: Name, Art, Wochenstunden, Besonderheiten. */
+/** Kompakte Zeile in der Liste: Name, Art, Vertrag, Grundplan. */
 function EmployeeSummaryRow({
   emp,
   openDates,
   workHours,
+  year,
 }: {
   emp: Employee;
   openDates: readonly string[];
   workHours: WorkHoursConfig;
+  year: number;
 }) {
-  const monatMin = monthlyTargetMinutesFor(emp, openDates, workHours);
-  const monatH = monatMin / 60;
-  const info = splitInfo(monatH, emp.employmentType);
+  const sollMin = monthlyTargetMinutesFor(emp, openDates, workHours);
+  const baseMonth = baseMinutesInMonth(emp, openDates, year);
+  const hasBase = baseMinutesPerWeek(emp) > 0;
+  const short = hasBase && !emp.adjustable && baseMonth < sollMin;
 
   return (
     <div className="flex-1 min-w-0">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium text-slate-900 truncate">{emp.name}</span>
         <span className="shrink-0 rounded bg-slate-100 text-slate-600 text-[11px] px-1.5 py-0.5">
           {employmentShortVi(emp.employmentType)}
         </span>
+        <span className={`shrink-0 rounded text-[11px] px-1.5 py-0.5 ${emp.adjustable ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+          {emp.adjustable ? "được điều chỉnh" : "giữ khung"}
+        </span>
       </div>
       <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-500">
         <span>
-          {emp.weeklyHours ?? 0}h/tuần · {monatH > 0 ? `${minutesToShortHours(monatMin)} · ` : ""}
-          <span className={info.ok ? "" : "text-rose-600"}>{info.text}</span>
+          {emp.weeklyHours != null ? `${hoursText(emp.weeklyHours)}h/tuần` : `${hoursText(emp.targetMinutes / 60)}h/tháng`}
+          {" · tháng này "}{minutesToShortHours(sollMin)}
         </span>
-        {emp.fixedShift ? (
-          <span className="rounded bg-indigo-50 text-indigo-700 px-1.5 py-0.5">
-            ca cố định {minutesToTime(emp.fixedShift.startMinutes)}–
-            {minutesToTime(emp.fixedShift.endMinutes)}
+        {hasBase && (
+          <span className={short ? "text-amber-700" : ""}>
+            · lịch cơ bản {minutesToShortHours(baseMinutesPerWeek(emp))}/tuần, tháng này {minutesToShortHours(baseMonth)}
+            {short && " (thiếu)"}
           </span>
-        ) : null}
+        )}
+      </div>
+      <div className="mt-0.5 text-xs text-slate-600">
+        {hasBase ? baseScheduleSummary(emp.baseSchedule) : <span className="text-amber-700">Chưa có lịch cơ bản — xếp theo giờ mở cửa</span>}
       </div>
     </div>
   );
@@ -266,6 +270,7 @@ function EmployeeSheet({
   employee,
   openDates,
   workHours,
+  year,
   onClose,
   onSave,
   onDelete,
@@ -273,6 +278,7 @@ function EmployeeSheet({
   employee?: Employee;
   openDates: readonly string[];
   workHours: WorkHoursConfig;
+  year: number;
   onClose: () => void;
   onSave: (felder: Omit<Employee, "id">) => void;
   onDelete?: () => void;
@@ -282,10 +288,24 @@ function EmployeeSheet({
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) =>
     setD((prev) => ({ ...prev, [k]: v }));
+  const setBlocks = (key: WeekdayKey, blocks: BlockDraft[]) =>
+    setD((prev) => ({ ...prev, base: { ...prev.base, [key]: blocks } }));
 
-  const monatMin = monthlyTargetMinutesFor({ ...draftToEmployee(d), id: employee?.id ?? "preview" }, openDates, workHours);
-  const monatH = monatMin / 60;
-  const info = splitInfo(monatH, d.employmentType);
+  const preview = draftToEmployee(d);
+  const sollMin = monthlyTargetMinutesFor({ ...preview, id: employee?.id ?? "preview" }, openDates, workHours);
+  const baseWeek = baseMinutesPerWeek({ ...preview, id: "preview" });
+  const baseMonth = baseMinutesInMonth(preview, openDates, year);
+  const invalidBlocks = WEEKDAY_ORDER.some((key) => d.base[key].some((b) => windowOf(b) === null));
+
+  /** Neuer Block: nächster Öffnungsblock dieses Tages, sonst 17:00–21:00. */
+  function addBlock(key: WeekdayKey) {
+    const existing = d.base[key];
+    const open = workHours.perWeekday[key][existing.length];
+    const block = open
+      ? { start: minutesToTime(open.startMinutes), end: minutesToTime(open.endMinutes) }
+      : { start: "17:00", end: "21:00" };
+    setBlocks(key, [...existing, block]);
+  }
 
   return (
     <div
@@ -293,17 +313,12 @@ function EmployeeSheet({
       onClick={onClose}
     >
       <div
-        className="w-full sm:max-w-md max-h-[92vh] overflow-y-auto rounded-t-2xl sm:rounded-lg bg-white shadow-xl border border-slate-200"
+        className="w-full sm:max-w-lg max-h-[92vh] overflow-y-auto rounded-t-2xl sm:rounded-lg bg-white shadow-xl border border-slate-200"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between">
-          <h3 className="font-semibold text-slate-900">
-            {employee ? "Sửa nhân viên" : "Thêm nhân viên"}
-          </h3>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 text-xl leading-none"
-          >
+        <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between">
+          <h3 className="font-semibold text-slate-900">{employee ? "Sửa nhân viên" : "Thêm nhân viên"}</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl leading-none" aria-label="Đóng">
             ✕
           </button>
         </div>
@@ -320,7 +335,7 @@ function EmployeeSheet({
             />
           </label>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <label className="block">
               <span className="text-xs text-slate-600">Hình thức</span>
               <select
@@ -334,155 +349,128 @@ function EmployeeSheet({
               </select>
             </label>
             <label className="block">
-              <span className="text-xs text-slate-600">Giờ / tuần</span>
-              <input
-                type="number"
-                inputMode="numeric"
-                min={0}
-                step={1}
+              <span className="text-xs text-slate-600">Hợp đồng theo</span>
+              <select
                 className={`${inputClass} w-full mt-1`}
-                value={d.weekly}
-                onChange={(e) => set("weekly", e.target.value)}
-              />
+                value={d.unit}
+                onChange={(e) => set("unit", e.target.value as Draft["unit"])}
+              >
+                <option value="week">Tuần</option>
+                <option value="month">Tháng</option>
+              </select>
             </label>
-          </div>
-          <div className={`text-xs ${info.ok ? "text-slate-500" : "text-rose-600"}`}>
-            Tháng này ≈ <b>{minutesToShortHours(monatMin)}</b> · {info.text}
-          </div>
-
-          {/*
-            „Nâng cao": selten gebraucht, deshalb eingeklappt. Hat die Person
-            schon eine Sonderregel, ist der Block offen – sonst wäre eine aktive
-            Einschränkung unsichtbar. Das open-Attribut hängt nur am gespeicherten
-            Mitarbeiter (nicht am Entwurf), damit React das Auf-/Zuklappen nicht
-            bei jedem Tastendruck zurücksetzt.
-          */}
-          <details
-            open={advancedSummary(draftFrom(employee)) !== null}
-            className="group rounded-lg border border-slate-200"
-          >
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
-              <span>
-                Nâng cao
-                {advancedSummary(d) && (
-                  <span className="block text-xs font-normal text-slate-500">{advancedSummary(d)}</span>
-                )}
-              </span>
-              <span className="text-slate-400 transition-transform group-open:rotate-90" aria-hidden="true">›</span>
-            </summary>
-            <div className="space-y-4 border-t border-slate-100 px-3 pb-3 pt-3">
-          <div>
-            <label className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer select-none">
+            <label className="block">
+              <span className="text-xs text-slate-600">Số giờ</span>
               <input
-                type="checkbox"
-                className="mt-0.5"
-                checked={d.fixed}
-                onChange={(e) => set("fixed", e.target.checked)}
+                inputMode="decimal"
+                className={`${inputClass} w-full mt-1`}
+                value={d.hours}
+                onChange={(e) => set("hours", e.target.value)}
+                placeholder={d.unit === "week" ? "VD 40" : "VD 43,5"}
               />
-              <span>Ca cố định</span>
             </label>
-
-            {d.fixed && (
-              <div className="mt-2 ml-6 flex flex-wrap items-center gap-2 text-sm text-slate-700">
-                <span className="text-xs text-slate-500">Khung giờ</span>
-                <input
-                  type="time"
-                  className={inputClass}
-                  value={d.fixedStart}
-                  onChange={(e) => set("fixedStart", e.target.value)}
-                />
-                <span className="text-slate-400">–</span>
-                <input
-                  type="time"
-                  className={inputClass}
-                  value={d.fixedEnd}
-                  onChange={(e) => set("fixedEnd", e.target.value)}
-                />
-                {safeMinutes(d.fixedEnd, FIXED_END_DEFAULT) <=
-                  safeMinutes(d.fixedStart, FIXED_START_DEFAULT) && (
-                  <span className="text-xs text-rose-600">Giờ kết thúc phải sau giờ bắt đầu.</span>
-                )}
-              </div>
-            )}
+          </div>
+          <div className="text-xs text-slate-500">
+            Tháng này: định mức <b>{minutesToShortHours(sollMin)}</b> · lịch cơ bản{" "}
+            <b className={baseMonth < sollMin && !d.adjustable ? "text-amber-700" : ""}>{minutesToShortHours(baseMonth)}</b>
+            {baseWeek > 0 && <> ({minutesToShortHours(baseWeek)}/tuần)</>}
+            {baseMonth > sollMin && " — sẽ cắt bớt ngày ít ưu tiên"}
+            {baseMonth < sollMin && (d.adjustable ? " — sẽ kéo dài ca, ưu tiên tối T6–CN" : " — sẽ báo thiếu giờ")}
           </div>
 
-          {/* Ngày làm trong tuần + số ngày/tuần. */}
-          <div className="border-t border-slate-100 pt-3">
-            <div className="text-xs text-slate-600 mb-1.5">
-              Ngày làm trong tuần
-              {d.availableWeekdays.length === 0 && (
-                <span className="text-slate-400"> — bỏ trống = làm mọi ngày</span>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-1">
+          <label className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={d.adjustable}
+              onChange={(e) => set("adjustable", e.target.checked)}
+            />
+            <span>
+              Được điều chỉnh để đủ giờ
+              <span className="block text-xs text-slate-500">
+                Kéo dài ca theo bước 30′, tối đa 60′ trước giờ mở và 30′ sau giờ đóng. Không bật = giữ đúng khung, thiếu thì báo.
+              </span>
+            </span>
+          </label>
+
+          {/* Lịch cơ bản theo thứ – mỗi ngày có thể 2 ca (trưa + tối). */}
+          <div className="rounded-lg border border-slate-200">
+            <div className="border-b border-slate-100 px-3 py-2 text-sm font-medium text-slate-700">Lịch cơ bản</div>
+            <div className="divide-y divide-slate-100">
               {WEEKDAY_ORDER.map((key) => {
-                const alle = d.availableWeekdays.length === 0;
-                const an = alle || d.availableWeekdays.includes(key);
+                const blocks = d.base[key];
+                const closed = workHours.closedWeekdays[key];
                 return (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => {
-                      const basis = alle ? WEEKDAY_ORDER : d.availableWeekdays;
-                      const naechste = basis.includes(key)
-                        ? basis.filter((k) => k !== key)
-                        : [...basis, key];
-                      set("availableWeekdays", naechste);
-                    }}
-                    className={`rounded px-2 py-1 text-xs border transition-colors ${
-                      an
-                        ? "bg-slate-800 text-white border-slate-800"
-                        : "bg-white text-slate-400 border-slate-200 line-through"
-                    }`}
-                  >
-                    {WEEKDAY_SHORT_VI[key]}
-                  </button>
+                  <div key={key} className="flex items-start gap-2 px-3 py-2">
+                    <div className="w-10 shrink-0 pt-1.5">
+                      <div className={`text-sm font-medium ${closed ? "text-slate-400" : "text-slate-700"}`}>{WEEKDAY_SHORT_VI[key]}</div>
+                      {closed && <div className="text-[10px] leading-tight text-slate-400">quán nghỉ</div>}
+                    </div>
+                    <div className="flex-1 space-y-1">
+                      {blocks.length === 0 && <div className="pt-1.5 text-xs text-slate-400">Nghỉ</div>}
+                      {blocks.map((block, index) => (
+                        <div key={index} className="flex items-center gap-1.5">
+                          <input
+                            type="time"
+                            className={`${inputClass} min-w-0 flex-1 sm:flex-none`}
+                            value={block.start}
+                            onChange={(e) => setBlocks(key, blocks.map((b, i) => (i === index ? { ...b, start: e.target.value } : b)))}
+                          />
+                          <span className="text-slate-400">–</span>
+                          <input
+                            type="time"
+                            className={`${inputClass} min-w-0 flex-1 sm:flex-none`}
+                            value={block.end}
+                            onChange={(e) => setBlocks(key, blocks.map((b, i) => (i === index ? { ...b, end: e.target.value } : b)))}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setBlocks(key, blocks.filter((_, i) => i !== index))}
+                            className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50"
+                            aria-label={`Xoá ca ${WEEKDAY_SHORT_VI[key]}`}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                      {blocks.some((b) => windowOf(b) === null) && (
+                        <div className="text-xs text-rose-600">Giờ ra phải sau giờ vào.</div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => addBlock(key)}
+                      disabled={blocks.length >= 2}
+                      className="shrink-0 rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-30"
+                    >
+                      + Ca
+                    </button>
+                  </div>
                 );
               })}
             </div>
-            <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
-              Số ngày làm mỗi tuần
-              <input
-                type="number"
-                min={1}
-                max={7}
-                placeholder="—"
-                className={`${inputClass} w-16`}
-                value={d.maxDays}
-                onChange={(e) => set("maxDays", e.target.value)}
-              />
-              <span className="text-slate-400">bỏ trống = không giới hạn</span>
-            </label>
           </div>
 
           {/* Ngày vào làm (Eintritt) – vào giữa tháng thì không bị báo thiếu giờ. */}
-          <div className="border-t border-slate-100 pt-3">
-            <label className="block">
-              <span className="text-xs text-slate-600">Ngày vào làm</span>
-              <div className="mt-1 flex items-center gap-2">
-                <input
-                  type="date"
-                  className={`${inputClass}`}
-                  value={d.startDate}
-                  onChange={(e) => set("startDate", e.target.value)}
-                />
-                {d.startDate && (
-                  <button
-                    type="button"
-                    onClick={() => set("startDate", "")}
-                    className="text-xs text-slate-500 hover:text-slate-700 underline"
-                  >
-                    Xoá
-                  </button>
-                )}
-              </div>
-              <span className="mt-1 block text-xs text-slate-400">
-                Vào giữa tháng thì đặt ngày ở đây — định mức chỉ tính từ ngày này, không báo thiếu giờ. Bỏ trống = làm từ đầu tháng.
-              </span>
-            </label>
-          </div>
+          <label className="block">
+            <span className="text-xs text-slate-600">Ngày vào làm</span>
+            <div className="mt-1 flex items-center gap-2">
+              <input
+                type="date"
+                className={inputClass}
+                value={d.startDate}
+                onChange={(e) => set("startDate", e.target.value)}
+              />
+              {d.startDate && (
+                <button type="button" onClick={() => set("startDate", "")} className="text-xs text-slate-500 hover:text-slate-700 underline">
+                  Xoá
+                </button>
+              )}
             </div>
-          </details>
+            <span className="mt-1 block text-xs text-slate-400">
+              Bỏ trống = làm từ đầu tháng. Các ngày trước ngày vào làm không xếp ca.
+            </span>
+          </label>
         </div>
 
         <div className="sticky bottom-0 bg-white border-t border-slate-200 px-4 py-3">
@@ -490,16 +478,10 @@ function EmployeeSheet({
             <div className="flex items-center justify-between gap-3">
               <span className="text-sm text-slate-600">Xoá nhân viên này?</span>
               <div className="flex gap-2">
-                <button
-                  onClick={() => setLoeschFrage(false)}
-                  className="rounded px-3 py-2 text-sm text-slate-600 hover:bg-slate-100"
-                >
+                <button onClick={() => setLoeschFrage(false)} className="rounded px-3 py-2 text-sm text-slate-600 hover:bg-slate-100">
                   Không
                 </button>
-                <button
-                  onClick={onDelete}
-                  className="rounded bg-rose-600 px-3 py-2 text-sm font-medium text-white hover:bg-rose-700"
-                >
+                <button onClick={onDelete} className="rounded bg-rose-600 px-3 py-2 text-sm font-medium text-white hover:bg-rose-700">
                   Xoá
                 </button>
               </div>
@@ -507,25 +489,20 @@ function EmployeeSheet({
           ) : (
             <div className="flex items-center justify-between gap-3">
               {onDelete ? (
-                <button
-                  onClick={() => setLoeschFrage(true)}
-                  className="text-rose-600 hover:text-rose-800 text-sm font-medium"
-                >
+                <button onClick={() => setLoeschFrage(true)} className="text-rose-600 hover:text-rose-800 text-sm font-medium">
                   Xoá
                 </button>
               ) : (
                 <span />
               )}
               <div className="flex gap-2">
-                <button
-                  onClick={onClose}
-                  className="rounded px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
-                >
+                <button onClick={onClose} className="rounded px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">
                   Huỷ
                 </button>
                 <button
-                  onClick={() => onSave(draftToEmployee(d))}
-                  className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+                  onClick={() => onSave(preview)}
+                  disabled={invalidBlocks || parseHours(d.hours) <= 0}
+                  className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
                 >
                   Lưu
                 </button>

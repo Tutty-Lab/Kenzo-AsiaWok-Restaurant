@@ -29,9 +29,16 @@ Hai nhóm quy tắc: **(1) LUẬT** (không được vi phạm) và **(2) quy t�
 
 ## 2. Quy tắc app / quán — KHÔNG phải luật (đổi được tuỳ quán)
 
-- **Ưu tiên phủ peak hour và peak day** (giờ cao điểm, ngày đông).
-- **Giờ mở cửa và giờ đóng cửa luôn luôn ít nhất 2 nhân viên** — vì có **bồi** và
-  **bếp** (mỗi bộ phận cần người trực).
+Repo này phục vụ **2 quán ở Warburg (NRW)** — ngày lễ theo Nordrhein-Westfalen.
+
+- **Xếp theo lịch cơ bản từng người** (tab Nhân viên), rồi chỉnh cho khớp hợp đồng
+  tuần/tháng: thừa thì cắt ngày ít ưu tiên, thiếu thì kéo dài ca (chỉ người bật
+  „Được điều chỉnh", tối đa 60′ trước giờ mở / 30′ sau giờ đóng).
+- **Ưu tiên tối T6, T7, CN** — kéo dài ở đó trước, cắt ở đó sau cùng.
+- **KENZO:** T2 nghỉ · T3–T4 17:00–21:00 · T5–CN 12:00–14:30 và 17:00–21:30 · lễ
+  như CN. Tối T6–CN (18:00–21:00) ít nhất **2 người**.
+- **Asia Wok:** T2–T7 11:00–19:30 · CN và ngày lễ nghỉ · không đặt số người tối thiểu.
+- Ca ngắn nhất **1,5 giờ**; app chặn **10 giờ công/ngày** (đúng mức luật).
 
 > Các quy tắc này là vận hành của quán, không phải luật — có thể chỉnh theo từng
 > cửa hàng (số người tối thiểu, khung giờ cao điểm, số ngày mở…). Khi đổi, nhớ

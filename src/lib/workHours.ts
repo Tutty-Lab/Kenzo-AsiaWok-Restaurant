@@ -1,32 +1,26 @@
 // ============================================================================
-// Arbeitszeit-Fenster (giờ làm) je Wochentag + Feiertag. Das ist das Fenster,
-// in dem Schichten geplant werden dürfen (Früh am Fenster-Beginn, Spät am
-// Fenster-Ende). Feiertage (Bayern) werden für die Nachfrage wie Sonntag
-// behandelt, verwenden aber ihr eigenes Zeitfenster.
+// Öffnungszeiten je Wochentag + Feiertag. Ein Tag kann aus mehreren Blöcken
+// bestehen (Kenzo: mittags und abends). Feiertage (NRW) nehmen die
+// Feiertagszeiten – oder bleiben zu, wenn der Laden an Feiertagen schließt.
 // ============================================================================
 
 import { parseIsoDate, weekdayKeyOf, type WeekdayKey } from "./demand";
 
 export type DayWindow = { startMinutes: number; endMinutes: number };
 
-/**
- * Ein Arbeitstag kann aus MEHREREN Blöcken bestehen.
- *
- * Viet Cuisine öffnet Di–Sa zweimal am Tag (10:30–14:30 und 16:30–22:30). Ein
- * Dienst muss immer KOMPLETT in einen Block passen – über die
- * Mittagsschließung hinweg gibt es keine Schicht.
- */
+/** Ein Arbeitstag kann aus MEHREREN Öffnungsblöcken bestehen. */
 export type DayBlocks = DayWindow[];
 
 export type WorkHoursConfig = {
   perWeekday: Record<WeekdayKey, DayBlocks>;
   holiday: DayBlocks;
   /**
-   * Wochentage, an denen der Laden grundsätzlich geschlossen ist (kein Dienst).
-   * Bei Viet Cuisine ist das der Montag. Ein Datum-Override mit eigenen Zeiten kann
-   * einen solchen Tag im Einzelfall trotzdem öffnen.
+   * Wochentage, an denen der Laden grundsätzlich geschlossen ist. Ein
+   * Datum-Override mit eigenen Zeiten kann einen solchen Tag trotzdem öffnen.
    */
   closedWeekdays: Record<WeekdayKey, boolean>;
+  /** true = an gesetzlichen Feiertagen geschlossen (Asia Wok). */
+  holidayClosed?: boolean;
 };
 
 /**
@@ -60,37 +54,30 @@ export function frameOf(blocks: DayBlocks): DayWindow {
   };
 }
 
-/** Längster einzelner Block – so lang darf eine Schicht höchstens sein. */
-export function longestBlock(blocks: DayBlocks): number {
-  let max = 0;
-  for (const b of blocks) max = Math.max(max, b.endMinutes - b.startMinutes);
-  return max;
-}
-
 const w = (start: number, end: number): DayWindow => ({ startMinutes: start, endMinutes: end });
+const copy = (blocks: DayBlocks): DayBlocks => blocks.map((b) => ({ ...b }));
 
-// Vorgabe des Betriebs (Viet Cuisine GmbH), Arbeitszeit:
-//   Montag             geschlossen
-//   Dienstag–Samstag   10:30–14:30 UND 16:30–22:30  (zwei Blöcke, Pause 14:30–16:30)
-//   Sonntag & Feiertag 10:30–22:00 DURCHGEHEND (keine Mittagspause, ganzer Tag)
-const MITTAGS_SPLIT: DayBlocks = [w(10 * 60 + 30, 14 * 60 + 30), w(16 * 60 + 30, 22 * 60 + 30)];
-const DURCHGEHEND: DayBlocks = [w(10 * 60 + 30, 22 * 60)];
+// KENZO Asia Kitchen & Sushi Lounge:
+//   Montag             Ruhetag
+//   Dienstag–Mittwoch  17:00–21:00
+//   Donnerstag–Sonntag 12:00–14:30 und 17:00–21:30 (Pause 14:30–17:00)
+//   Feiertag           wie Sonntag (ein Montagsfeiertag bleibt zu)
+const KENZO_ABEND: DayBlocks = [w(17 * 60, 21 * 60)];
+const KENZO_ZWEI: DayBlocks = [w(12 * 60, 14 * 60 + 30), w(17 * 60, 21 * 60 + 30)];
 
-export const DEFAULT_WORK_HOURS: WorkHoursConfig = {
+export const KENZO_WORK_HOURS: WorkHoursConfig = {
   perWeekday: {
-    monday: MITTAGS_SPLIT.map((b) => ({ ...b })), // geschlossen, nur als Rückfall
-    tuesday: MITTAGS_SPLIT.map((b) => ({ ...b })),
-    wednesday: MITTAGS_SPLIT.map((b) => ({ ...b })),
-    thursday: MITTAGS_SPLIT.map((b) => ({ ...b })),
-    friday: MITTAGS_SPLIT.map((b) => ({ ...b })),
-    saturday: MITTAGS_SPLIT.map((b) => ({ ...b })),
-    // Sonntag durchgehend, ohne Mittagsschließung.
-    sunday: DURCHGEHEND.map((b) => ({ ...b })),
+    monday: copy(KENZO_ABEND), // geschlossen, nur als Rückfall
+    tuesday: copy(KENZO_ABEND),
+    wednesday: copy(KENZO_ABEND),
+    thursday: copy(KENZO_ZWEI),
+    friday: copy(KENZO_ZWEI),
+    saturday: copy(KENZO_ZWEI),
+    sunday: copy(KENZO_ZWEI),
   },
-  // Feiertage werden wie Sonntag behandelt: der Laden ist OFFEN, durchgehend.
-  holiday: DURCHGEHEND.map((b) => ({ ...b })),
+  holiday: copy(KENZO_ZWEI),
   closedWeekdays: {
-    monday: true, // Viet Cuisine: montags geschlossen
+    monday: true,
     tuesday: false,
     wednesday: false,
     thursday: false,
@@ -98,11 +85,41 @@ export const DEFAULT_WORK_HOURS: WorkHoursConfig = {
     saturday: false,
     sunday: false,
   },
+  holidayClosed: false,
 };
 
+// Asia Wok Warburg: Montag–Samstag 11:00–19:30; Sonntag und Feiertag geschlossen.
+const WOK_TAG: DayBlocks = [w(11 * 60, 19 * 60 + 30)];
+
+export const ASIA_WOK_WORK_HOURS: WorkHoursConfig = {
+  perWeekday: {
+    monday: copy(WOK_TAG),
+    tuesday: copy(WOK_TAG),
+    wednesday: copy(WOK_TAG),
+    thursday: copy(WOK_TAG),
+    friday: copy(WOK_TAG),
+    saturday: copy(WOK_TAG),
+    sunday: copy(WOK_TAG), // geschlossen, nur als Rückfall
+  },
+  holiday: copy(WOK_TAG),
+  closedWeekdays: {
+    monday: false,
+    tuesday: false,
+    wednesday: false,
+    thursday: false,
+    friday: false,
+    saturday: false,
+    sunday: true,
+  },
+  holidayClosed: true,
+};
+
+/** Rückfall, wenn keine Filiale angegeben ist (Tests, Standardparameter). */
+export const DEFAULT_WORK_HOURS: WorkHoursConfig = KENZO_WORK_HOURS;
+
 /**
- * Für Nachfrage/Spätquote maßgeblicher Wochentag: Feiertage zählen wie Sonntag
- * (der Nutzer gruppiert „Sonntag & Feiertag").
+ * Für Grundplan und Priorität maßgeblicher Wochentag: ein geöffneter Feiertag
+ * zählt wie Sonntag.
  */
 export function effectiveWeekdayKey(isoDate: string, holidays: Set<string>): WeekdayKey {
   if (holidays.has(isoDate)) return "sunday";
@@ -134,7 +151,7 @@ const open = (blocks: DayBlocks): ResolvedDay => ({
 /**
  * Vollständige Auflösung eines Tages inkl. Ausnahmen:
  * Ausnahme geschlossen > Ausnahme eigene Zeiten > geschlossener Wochentag
- * (z.B. Montag) > Feiertag > Wochentag.
+ * (z.B. Montag) > Feiertag (zu, wenn holidayClosed) > Wochentag.
  */
 export function resolveDay(
   config: WorkHoursConfig,
@@ -149,6 +166,7 @@ export function resolveDay(
   if (ov?.window) return open([ov.window]);
   const weekday = weekdayKeyOf(parseIsoDate(isoDate));
   if (config.closedWeekdays?.[weekday]) return CLOSED;
+  if (config.holidayClosed && holidays.has(isoDate)) return CLOSED;
   return open(resolveWorkBlocks(config, isoDate, holidays));
 }
 
@@ -164,32 +182,27 @@ export function isDayClosed(
 
 /** Ein einzelner Eintrag aus einem gespeicherten Stand als Blockliste. */
 function blocksFrom(value: unknown, fallback: DayBlocks): DayBlocks {
-  // Neuer Stand: bereits eine Liste.
   if (Array.isArray(value)) {
     const out = value.filter(
       (b): b is DayWindow =>
         !!b && typeof b.startMinutes === "number" && typeof b.endMinutes === "number",
     );
     if (out.length > 0) return out.map((b) => ({ ...b }));
-    return fallback.map((b) => ({ ...b }));
+    return copy(fallback);
   }
   // Alter Stand: EIN Fenster als Objekt – wird zu einer Liste mit einem Block.
   const one = value as DayWindow | undefined;
   if (one && typeof one.startMinutes === "number" && typeof one.endMinutes === "number") {
     return [{ startMinutes: one.startMinutes, endMinutes: one.endMinutes }];
   }
-  return fallback.map((b) => ({ ...b }));
+  return copy(fallback);
 }
 
-/**
- * Tiefe Kopie mit Auffüllen fehlender Felder.
- *
- * Wandelt dabei alte Speicherstände mit genau EINEM Fenster je Wochentag in
- * die Blockliste um. Ohne diesen Schritt käme aus der Datenbank ein Objekt,
- * wo der Code eine Liste erwartet, und der Tag wäre lautlos ohne Öffnung.
- */
-export function normalizeWorkHours(partial: Partial<WorkHoursConfig> | undefined): WorkHoursConfig {
-  const base = DEFAULT_WORK_HOURS;
+/** Tiefe Kopie mit Auffüllen fehlender Felder aus den Zeiten der Filiale. */
+export function normalizeWorkHours(
+  partial: Partial<WorkHoursConfig> | undefined,
+  base: WorkHoursConfig = DEFAULT_WORK_HOURS,
+): WorkHoursConfig {
   const perWeekday = {} as Record<WeekdayKey, DayBlocks>;
   for (const key of Object.keys(base.perWeekday) as WeekdayKey[]) {
     perWeekday[key] = blocksFrom(partial?.perWeekday?.[key], base.perWeekday[key]);
@@ -203,5 +216,6 @@ export function normalizeWorkHours(partial: Partial<WorkHoursConfig> | undefined
       if (typeof v === "boolean") closedWeekdays[key] = v;
     }
   }
-  return { perWeekday, holiday, closedWeekdays };
+  const holidayClosed = typeof partial?.holidayClosed === "boolean" ? partial.holidayClosed : Boolean(base.holidayClosed);
+  return { perWeekday, holiday, closedWeekdays, holidayClosed };
 }

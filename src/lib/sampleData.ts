@@ -1,114 +1,91 @@
 // ============================================================================
-// Beispieldaten: die heutige Besetzung von Viet Cuisine (12 Personen, Wochenverträge).
+// Startbelegschaft beider Filialen laut Angabe des Betriebs (September 2026).
+//
+// Nguyễn Duy Hậu steht in BEIDEN Listen – laut Betrieb zwei verschiedene
+// Personen mit gleichem Namen. Es gibt deshalb keine filialübergreifende Prüfung.
 // ============================================================================
 
-import type { Employee, Schedule } from "../types";
-import { DEFAULT_WORK_HOURS } from "./workHours";
-import { COMPANY_ADDRESS, COMPANY_NAME } from "./company";
+import type { BaseSchedule, Employee } from "../types";
+import type { WeekdayKey } from "./demand";
+import type { DayWindow } from "./workHours";
 
-export function makeEmployee(
-  id: string,
-  name: string,
-  employmentType: Employee["employmentType"],
-  targetHours: number,
-): Employee {
-  return { id, name, employmentType, targetMinutes: targetHours * 60 };
-}
+/** "17:30" -> 1050 */
+const t = (value: string): number => Number(value.slice(0, 2)) * 60 + Number(value.slice(3));
+const block = (from: string, to: string): DayWindow => ({ startMinutes: t(from), endMinutes: t(to) });
 
-/** Mitarbeiter mit WOCHENvertrag (Viet Cuisine rechnet in Wochenstunden). */
-export function makeWeekly(
-  id: string,
-  name: string,
-  employmentType: Employee["employmentType"],
-  weeklyHours: number,
-): Employee {
-  return { id, name, employmentType, targetMinutes: 0, weeklyHours };
+/** Gleiche Dienste für mehrere Wochentage. */
+function days(keys: WeekdayKey[], blocks: DayWindow[]): BaseSchedule {
+  return Object.fromEntries(keys.map((key) => [key, blocks.map((b) => ({ ...b }))]));
 }
 
 /**
- * Belegschaft laut Angabe des Betriebs (Viet Cuisine GmbH), 12 Personen, alle
- * mit WOCHENstunden. Vollzeit = 39 h/Woche.
+ * KENZO Asia Kitchen & Sushi Lounge, Hauptstraße 19, 34414 Warburg.
  *
  * ANNAHMEN, die der Betrieb bestätigen sollte:
- *   - Anstellungsart aus den Wochenstunden abgeleitet: 39–40 h = Vollzeit,
- *     33/35/36 h = Teilzeit, 10 h = Minijob.
- *   - Die Kraft "chỉ làm ca 6:30–14:30" ist NICHT fest einer Person zugeordnet;
- *     im Betrieb hakt man die feste Frühschicht bei der richtigen Person an
- *     (Tab Nhân viên). Hier steht sie deshalb noch bei niemandem.
- *   - Mitten im Monat startende/wechselnde Verträge (Bùi ab 7.9., Bảo ab 10.9.,
- *     Nguyệt/Đạt ab Oktober 39 h) sind hier mit ihrem SEPTEMBER-Wert erfasst;
- *     der Teilmonat wird über das Eintrittsdatum (startDate) abgebildet.
+ *   - Hiếu Di–Mi „17:00–20:30 hoặc 21:00": Grundplan bis 20:30, der Scheduler
+ *     verlängert bis 21:00, wenn Stunden fehlen.
+ *   - Ahmad „chủ yếu T6, T7, CN buổi tối" ohne Uhrzeit: Rahmen 18:00–21:00.
  */
-export const SAMPLE_EMPLOYEES: Employee[] = [
-  makeWeekly("ma-1", "Nguyễn Kiều Hồng Nhung", "VOLLZEIT", 39),
-  makeWeekly("ma-2", "Nguyễn Tuấn Anh", "TEILZEIT", 33),
-  makeWeekly("ma-3", "Nguyễn Việt Văn", "VOLLZEIT", 40),
-  makeWeekly("ma-4", "Nguyễn Thị Tân", "VOLLZEIT", 40),
-  makeWeekly("ma-5", "Trịnh Xuân Thành", "VOLLZEIT", 40),
-  makeWeekly("ma-6", "Đào Thị Hào", "TEILZEIT", 36),
-  makeWeekly("ma-7", "Nguyễn Đức Đông", "VOLLZEIT", 39),
-  makeWeekly("ma-8", "Nguyễn Thị Khánh Huyền", "VOLLZEIT", 39),
-  makeWeekly("ma-9", "Nguyễn Thị Nguyệt", "MINIJOB", 10),
-  makeWeekly("ma-10", "Đoàn Thành Đạt", "MINIJOB", 10),
-  makeWeekly("ma-11", "Bùi Văn Vũ", "VOLLZEIT", 39),
-  makeWeekly("ma-12", "Nguyễn Hữu Bảo", "TEILZEIT", 35),
-];
-
-export function createSampleSchedule(): Schedule {
-  return {
-    companyName: COMPANY_NAME,
-    address: COMPANY_ADDRESS,
-    year: 2026,
-    month: 8, // August
-    workHours: structuredClone(DEFAULT_WORK_HOURS),
-    dateOverrides: [],
-    employees: SAMPLE_EMPLOYEES.map((e) => ({ ...e })),
-    shifts: [],
-  };
-}
-
-/** Ein einzelnes ISO-Datum "yyyy-MM-dd" – für den ersten Arbeitstag (Eintritt). */
-function iso(year: number, month: number, day: number): string {
-  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+export function kenzoEmployees(): Employee[] {
+  return [
+    {
+      id: "kz-1",
+      name: "Nguyễn Duy Hậu",
+      employmentType: "VOLLZEIT",
+      targetMinutes: 0,
+      weeklyHours: 40,
+      adjustable: true,
+      baseSchedule: {
+        ...days(["tuesday", "wednesday", "thursday", "friday"], [block("16:00", "21:00")]),
+        ...days(["saturday", "sunday"], [block("11:00", "14:30"), block("17:00", "22:00")]),
+      },
+    },
+    {
+      id: "kz-2",
+      name: "Phương Văn Trọng Hiếu",
+      employmentType: "TEILZEIT",
+      targetMinutes: 120 * 60,
+      adjustable: true,
+      baseSchedule: {
+        ...days(["tuesday", "wednesday"], [block("17:00", "20:30")]),
+        ...days(["thursday", "friday"], [block("17:00", "21:00")]),
+        ...days(["saturday", "sunday"], [block("12:00", "14:00"), block("17:00", "21:00")]),
+      },
+    },
+    {
+      id: "kz-3",
+      name: "Ahmad Zia Omami",
+      employmentType: "MINIJOB",
+      targetMinutes: 11 * 60,
+      adjustable: false,
+      baseSchedule: days(["friday", "saturday", "sunday"], [block("18:00", "21:00")]),
+    },
+  ];
 }
 
 /**
- * Startbelegschaft, die die App beim allerersten Öffnen zeigt (September 2026),
- * genau die zwölf Personen aus der Angabe des Betriebs mit ihren Wochenstunden.
+ * Asia Wok Warburg, Paderborner Tor 126a, 34414 Warburg.
  *
- * Mitten im Monat startende Verträge tragen ihr Eintrittsdatum (startDate):
- * Tage davor sind gesperrt UND zählen nicht ins Monats-Soll, sonst würden sie
- * dauerhaft als „zu wenig geplant" gemeldet.
- *   - Bùi Văn Vũ arbeitet erst ab 7.9.
- *   - Nguyễn Hữu Bảo arbeitet erst ab 10.9.
- * Nguyễn Thị Nguyệt und Đoàn Thành Đạt stehen mit ihrem September-Wert (10 h);
- * ab Oktober trägt der Betrieb ihre 39 h ein.
+ * Ngự „17:00–18:30 hoặc 19:00", Rahmen bleibt (Betrieb: „Giữ khung, chấp nhận
+ * thiếu"): Grundplan bis 19:00, die fehlenden Stunden erscheinen als Warnung.
  */
-export function createInitialSchedule(): Schedule {
-  const year = 2026;
-  const month = 9;
-  const employees: Employee[] = [
-    makeWeekly("ma-1", "Nguyễn Kiều Hồng Nhung", "VOLLZEIT", 39),
-    makeWeekly("ma-2", "Nguyễn Tuấn Anh", "TEILZEIT", 33),
-    makeWeekly("ma-3", "Nguyễn Việt Văn", "VOLLZEIT", 40),
-    makeWeekly("ma-4", "Nguyễn Thị Tân", "VOLLZEIT", 40),
-    makeWeekly("ma-5", "Trịnh Xuân Thành", "VOLLZEIT", 40),
-    makeWeekly("ma-6", "Đào Thị Hào", "TEILZEIT", 36),
-    makeWeekly("ma-7", "Nguyễn Đức Đông", "VOLLZEIT", 39),
-    makeWeekly("ma-8", "Nguyễn Thị Khánh Huyền", "VOLLZEIT", 39),
-    makeWeekly("ma-9", "Nguyễn Thị Nguyệt", "MINIJOB", 10),
-    makeWeekly("ma-10", "Đoàn Thành Đạt", "MINIJOB", 10),
-    { ...makeWeekly("ma-11", "Bùi Văn Vũ", "VOLLZEIT", 39), startDate: iso(year, month, 7) },
-    { ...makeWeekly("ma-12", "Nguyễn Hữu Bảo", "TEILZEIT", 35), startDate: iso(year, month, 10) },
+export function asiaWokEmployees(): Employee[] {
+  return [
+    {
+      id: "aw-1",
+      name: "Nguyễn Duy Hậu",
+      employmentType: "MINIJOB",
+      targetMinutes: 40 * 60,
+      adjustable: false,
+      baseSchedule: days(["monday", "tuesday", "wednesday", "thursday", "friday"], [block("12:00", "14:00")]),
+    },
+    {
+      id: "aw-2",
+      name: "Bùi Xuân Ngự",
+      employmentType: "MINIJOB",
+      targetMinutes: 43 * 60,
+      adjustable: false,
+      baseSchedule: days(["thursday", "friday", "saturday"], [block("17:00", "19:00")]),
+    },
   ];
-  return {
-    companyName: COMPANY_NAME,
-    address: COMPANY_ADDRESS,
-    year,
-    month,
-    workHours: structuredClone(DEFAULT_WORK_HOURS),
-    dateOverrides: [],
-    employees,
-    shifts: [],
-  };
 }

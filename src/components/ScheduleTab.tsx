@@ -35,7 +35,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
   // Drucken (Monat/Woche) und Entsperren liegen im Tab „Bảng chấm công" –
   // dort sitzt alles, was Papier erzeugt.
   // Nút „Tạo lịch làm việc" và popup nằm trên thanh tab (App.tsx).
-  const { schedule, validation, generate, isLocked, openDates } = store;
+  const { schedule, validation, isLocked, openDates, storeConfig } = store;
   const [selected, setSelected] = useState<{ employeeId: string; date: string } | null>(null);
   // Mặc định: điện thoại -> xem theo ngày, màn lớn -> bảng tháng.
   const [view, setView] = useState<"grid" | "day" | "week" | "coverage">(() =>
@@ -116,20 +116,6 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
     return stats;
   }, [dates, schedule.shifts]);
 
-  const hasSplitSunday = useMemo(() => {
-    const holidays = publicHolidays(schedule.year);
-    for (const s of schedule.shifts) {
-      if (weekdayKeyOf(parseIsoDate(s.date)) === "sunday" || holidays.has(s.date)) {
-        const count = schedule.shifts.filter(
-          (other) => other.date === s.date && other.employeeId === s.employeeId,
-        ).length;
-        // CN là ca liền (tab Tài liệu); ca dài ở CN là đúng hệ số 1,5, chỉ báo khi bị chia 2 ca.
-        if (count > 1) return true;
-      }
-    }
-    return false;
-  }, [schedule.year, schedule.shifts]);
-
   const hasEmployees = schedule.employees.length > 0;
 
   return (
@@ -137,26 +123,6 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
       {/* Alles Sichtbare liegt im no-print-Block; beim Drucken bleibt nur der
           Druckbereich ganz unten übrig. */}
       <div className="no-print">
-      {hasSplitSunday && (
-        <div className="mb-3 rounded-lg bg-blue-50 border border-blue-300 p-3 text-blue-950 text-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
-          <div>
-            <div className="font-semibold flex items-center gap-1.5 text-blue-900">
-              <span>Chủ nhật đang bị chia 2 ca</span>
-            </div>
-            <p className="text-xs text-blue-800 mt-0.5">
-              Chủ nhật/ngày lễ là <b>ca liền</b> (xem mục Tài liệu). Lịch này có người bị chia ca sáng/chiều vào Chủ nhật — bấm nút bên cạnh để tạo lại.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => generate()}
-            className="whitespace-nowrap rounded bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 active:bg-blue-800 shadow"
-          >
-            Cập nhật lại lịch chuẩn ngay
-          </button>
-        </div>
-      )}
-
       {/*
         Nur ein kurzer Hinweis - Drucken und Entsperren sitzen im Tab
         "Bang cham cong". Ohne diesen Hinweis klickt man hier auf eine Zelle
@@ -239,7 +205,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
         </div>
       )}
 
-      {schedule.shifts.length > 0 && <StaffingReport analysis={store.analysis} />}
+      {schedule.shifts.length > 0 && <StaffingReport analysis={store.analysis} hasRules={storeConfig.staffingRules.length > 0} />}
 
       {/* Lỗi kiểm tra */}
       {!validation.valid && schedule.shifts.length > 0 && (
@@ -278,7 +244,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
       ) : view === "day" ? (
         <ScheduleDayView store={store} onEdit={(employeeId, date) => setSelected({ employeeId, date })} />
       ) : view === "coverage" ? (
-        <CoverageChart schedule={schedule} dates={weeks[Math.min(weekIndex, weeks.length - 1)]?.dates ?? dates} />
+        <CoverageChart schedule={schedule} rules={storeConfig.staffingRules} dates={weeks[Math.min(weekIndex, weeks.length - 1)]?.dates ?? dates} />
       ) : (
         <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white -mx-3 sm:mx-0">
           <table className="border-collapse text-xs">

@@ -10,6 +10,7 @@ import { Dashboard } from "./components/Dashboard";
 import { LockScreen } from "./components/LockScreen";
 import { isAuthenticated, logout } from "./lib/auth";
 import { monthLabel } from "./lib/shiftOps";
+import { STORES } from "./lib/stores";
 
 type TabId = "einstellungen" | "mitarbeiter" | "dienstplan" | "stundenzettel";
 
@@ -54,7 +55,7 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
         ? `Đã tạo lịch — nhưng còn ${fehler} lỗi, xem chi tiết ở phần trạng thái.`
         : warn > 0
           ? `✓ Đã tạo lịch mới (còn ${warn} cảnh báo thiếu giờ — bấm (i) để xem).`
-          : "✓ Đã tạo lịch mới — hợp lệ, giờ chia theo hệ số ngày.",
+          : "✓ Đã tạo lịch mới — hợp lệ, theo lịch cơ bản của từng người.",
     );
     const t = window.setTimeout(() => setToast(null), 5000);
     return () => window.clearTimeout(t);
@@ -70,7 +71,7 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
               <span className="ml-2 align-middle text-[10px] font-normal text-slate-400">bản {__BUILD__}</span>
             </h1>
             <p className="text-xs text-slate-300">
-              {store.schedule.companyName || "Chưa có tên cửa hàng"} · {monthLabel(store.schedule.year, store.schedule.month)}
+              {store.storeConfig.name} · {monthLabel(store.schedule.year, store.schedule.month)}
               {store.remoteStatus !== "off" && (
                 <span
                   className={
@@ -90,6 +91,22 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {/* Chuyển quán: mỗi quán một bộ dữ liệu riêng (nhân viên, giờ mở, lịch). */}
+            <div className="inline-flex rounded-lg bg-slate-800 p-0.5" role="group" aria-label="Chọn quán">
+              {STORES.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => store.setStoreId(s.id)}
+                  aria-pressed={store.storeId === s.id}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+                    store.storeId === s.id ? "bg-white text-slate-900" : "text-slate-300 hover:text-white"
+                  }`}
+                >
+                  {s.shortName}
+                </button>
+              ))}
+            </div>
             <button
               type="button"
               onClick={() => setDocsOpen((open) => !open)}
@@ -210,7 +227,7 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
             >
               ← Quay lại {TABS.find((t) => t.id === tab)?.label}
             </button>
-            <DocsTab />
+            <DocsTab store={store.storeConfig} />
           </div>
         ) : (
           <>

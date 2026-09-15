@@ -130,7 +130,7 @@ export function ShiftCellEditor({
           ) : (
             <div className="text-sm text-slate-600">
               Giờ công: <span className="font-medium">{minutesToShortHours(paidPreview)}</span>
-              {paidPreview > 9 * 60 && <span className="text-rose-600"> · quá 9 giờ!</span>}
+              {paidPreview > 10 * 60 && <span className="text-rose-600"> · quá 10 giờ!</span>}
               {Number(pause) !== suggestedPause && (
                 <span className="text-amber-600"> · nghỉ đề xuất: {suggestedPause} phút</span>
               )}

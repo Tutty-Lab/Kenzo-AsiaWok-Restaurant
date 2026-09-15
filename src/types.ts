@@ -15,51 +15,47 @@ export type EmploymentType = "VOLLZEIT" | "TEILZEIT" | "MINIJOB";
 
 export type ShiftType = "EARLY" | "LATE" | "CUSTOM";
 
+/**
+ * Grundplan einer Person: je Wochentag die üblichen Dienste (auch zwei am Tag,
+ * z. B. 11:00–14:30 und 17:00–22:00). Feiertage, an denen der Laden offen hat,
+ * nehmen den Sonntag. Fehlt ein Wochentag, arbeitet die Person dort nicht.
+ */
+export type BaseSchedule = Partial<Record<WeekdayKey, DayWindow[]>>;
+
 export type Employee = {
   id: string;
   name: string;
   employmentType: EmploymentType;
   /**
-   * Monatliches Soll in Minuten (Integer). 176 h => 10560.
-   *
-   * Bei Viet Cuisine wird der Vertrag in WOCHENstunden angegeben (39 h/Woche
-   * = Vollzeit). Ist weeklyHours gesetzt, ist DAS die Quelle und targetMinutes
-   * wird je Monat daraus berechnet (siehe contract.ts). targetMinutes bleibt
-   * trotzdem befüllt, damit ältere gespeicherte Daten einen Wert haben.
+   * Monatliches Soll in Minuten (Integer). 120 h => 7200. Gilt, wenn KEIN
+   * Wochenvertrag (weeklyHours) eingetragen ist.
    */
   targetMinutes: number;
   /**
-   * Vertragliche WOCHENstunden. Gesetzt => targetMinutes wird je Monat daraus
-   * abgeleitet: Wochenstunden × (offene Tage des Monats ÷ 6 offene Tage/Woche).
-   * Sechs offene Tage, weil der Laden montags zu ist (Di–So).
+   * Vertragliche WOCHENstunden. Gesetzt => das Monats-Soll wird je Monat daraus
+   * abgeleitet (contract.ts): volle Wochen = Vertrag, Randwochen anteilig nach
+   * den Grundplan-Stunden der Tage im Monat.
    */
   weeklyHours?: number;
   /**
-   * Feste Schicht: diese Person arbeitet an ihren Arbeitstagen IMMER in genau
-   * diesem Zeitfenster (Viet Cuisine: eine Kraft nur 6:30–14:30, Vorbereitung
-   * ab vor Ladenöffnung). Gesetzt => der Scheduler legt für sie nur Dienste in
-   * diesem Fenster an, unabhängig von den Öffnungsblöcken.
+   * Grundplan je Wochentag. Der Scheduler legt genau diese Dienste an und
+   * gleicht dann auf das Soll ab (kürzen/streichen, bei adjustable auch
+   * verlängern). Fehlt der Grundplan, gelten die Öffnungszeiten des Ladens.
    */
-  fixedShift?: DayWindow;
+  baseSchedule?: BaseSchedule;
+  /**
+   * true = die Dienste dürfen über den Grundplan hinaus verlängert werden, um das
+   * Soll zu erreichen (bis 60′ vor Öffnung / 30′ nach Schluss). false = der
+   * Rahmen bleibt; fehlende Stunden werden als Warnung gemeldet.
+   */
+  adjustable?: boolean;
   /**
    * Erster Arbeitstag als ISO-Datum "yyyy-MM-dd" (Eintritt/Vertragsbeginn).
    *
    * Gesetzt => Tage VOR diesem Datum sind gesperrt (kein Dienst) UND zählen
-   * nicht ins Monats-Soll. So wird ein Eintritt mitten im Monat korrekt
-   * abgebildet: die Person schuldet nur die Stunden ab ihrem Startdatum, statt
-   * als „zu wenig geplant" gemeldet zu werden. Fehlt = von Monatsanfang an dabei.
+   * nicht ins Monats-Soll eines Wochenvertrags. Fehlt = von Monatsanfang an dabei.
    */
   startDate?: string;
-  /**
-   * Wochentage, an denen diese Person überhaupt eingeplant werden darf.
-   * Fehlt/leer = jeder Tag ist möglich (keine Einschränkung).
-   */
-  availableWeekdays?: WeekdayKey[];
-  /**
-   * Höchstzahl der Arbeitstage je Woche. Fehlt = nur die gesetzliche
-   * Sechs-Tage-Regel begrenzt.
-   */
-  maxDaysPerWeek?: number;
 };
 
 export type Shift = {

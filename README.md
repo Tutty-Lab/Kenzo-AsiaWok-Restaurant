@@ -1,144 +1,69 @@
-# Dienstplan & Stundenzettel — Viet Cuisine GmbH
+# Dienstplan & Stundenzettel — KENZO & Asia Wok Warburg
 
-Haupt Straße 11, 92348 Berg (Oberpfalz, Bayern). React-Anwendung für
-Wochenplanung innerhalb eines Monats und deutsche Stundenaufzeichnungen.
-Die Oberfläche ist auf Vietnamesisch.
+Eine App für zwei Filialen in 34414 Warburg (Nordrhein-Westfalen). Die
+Oberfläche ist auf Vietnamesisch; umgeschaltet wird im Tab „Cài đặt" (Feld
+„Cửa hàng") oder in der Kopfzeile. Der Sperrbildschirm prüft das Passwort der
+zuletzt gewählten Filiale. Jede Filiale hat eigene Mitarbeiter, Öffnungszeiten,
+Pläne, ein eigenes Passwort und eine eigene Zeile in Supabase.
 
-## Öffnungszeiten und Besetzung
+| Filiale | `store_id` | Anschrift | Öffnung |
+|---|---|---|---|
+| KENZO Asia Kitchen & Sushi Lounge | `kenzo` | Hauptstraße 19 | Mo Ruhetag · Di–Mi 17:00–21:00 · Do–So 12:00–14:30 und 17:00–21:30 · Feiertag wie Sonntag |
+| Asia Wok Warburg | `asiawok` | Paderborner Tor 126a | Mo–Sa 11:00–19:30 · So und Feiertag geschlossen |
 
-- **Montag geschlossen, auch an einem Feiertag.** Montagsfeiertage sind nicht
-  abschließend geklärt; bis dahin gilt die explizite Montagsschließung.
-  Nur eine Datumsausnahme mit eigenen Zeiten öffnet den Tag.
-- **Di–Sa:** 10:30–14:30 und 16:30–22:30. Die Mittagsschließung
-  14:30–16:30 zählt nicht als Arbeitszeit.
-- **Sonntag und geöffnete Feiertage:** durchgehend 10:30–22:00.
-  Bayerische Feiertage zählen bei Öffnungsfenster und Nachfrage wie Sonntag;
-  Datumsausnahmen haben Vorrang.
-- **Während jedes geöffneten Blocks arbeiten mindestens 2 Personen.** Das gilt
-  auch nach der Wiederöffnung um 16:30 und sonntags durchgehend.
-- **21:30 bis zum tatsächlichen Tagesende: 5–6 arbeitende Personen.**
-  Üblicherweise bis 22:30, sonntags und an geöffneten Feiertagen bis 22:00.
-- **Betriebliche Stoßzeiten:** 18:00–20:00 sowie sonntags 12:00–14:00.
-  Die Planung verwendet abends **4 Personen an normalen Tagen, 6 an starken
-  Tagen** und **6 sonntags/feiertags mittags**. Diese Zahlen sind ausdrücklich
-  **abgeleitete Planungsziele der Implementierung**, keine vom Kunden genannten
-  Personenzahlen für die Stoßzeit.
+Feiertage: NRW (`src/lib/holidays.ts`).
 
-Die Mindestbesetzung gilt über das jeweilige Prüfintervall, geschnitten mit den
-tatsächlich geöffneten Blöcken. Pausierende Personen zählen nicht als arbeitend.
-Der Bericht nennt die Prüfzeiten, das Minimum und Maximum der Besetzung sowie
-den Vergleichswert.
+## Planung nach Grundplan
 
-## Verträge, Wochenmuster und Nachfrage
+Jede Person hat einen **Grundplan je Wochentag** (bis zu zwei Dienste am Tag)
+und einen Vertrag in **Wochen- oder Monatsstunden**. Der Scheduler
+(`src/lib/baseScheduler.ts`) legt den Grundplan in alle offenen Tage des Monats
+und gleicht dann auf den Vertrag ab:
 
-- **Wochenverträge sind harte Grenzen.** Fehlende Stunden dürfen weder durch
-  Überschreiten des Vertrags noch durch Verschieben in eine andere ISO-Woche
-  kaschiert werden. ISO-Wochen laufen Montag bis Sonntag; Randwochen zählen
-  anteilig. Zusätzliche Öffnungstage erhöhen den Wochenvertrag nicht.
-- **39 h/Woche ist der übliche Vollzeitvertrag.** Vorhandene 40-h-Verträge
-  bleiben bestehen. Keine automatische Umstellung der Belegschaft.
-- **Vollzeit bevorzugt ein wiederkehrendes Muster je Wochentag**, meistens mit
-  sechs Arbeitstagen und ungefähr 6–7 h/Tag. Identische 6,5 h an jedem Tag
-  liefern jedoch keinen Nachfrageunterschied. Tageslängen und flexible
-  Einsätze müssen Spielraum lassen, wenn das Wochenende stärker besetzt sein soll.
-- Verfügbare Wochentage, gesperrte Daten, Wochenarbeitstage, höchstens sechs
-  aufeinanderfolgende Arbeitstage und zulässige Tagesarbeitszeit begrenzen
-  jede Zuteilung. Geteilte Dienste bleiben innerhalb ihrer Öffnungsblöcke
-  und dürfen sich nicht überschneiden.
+- **Zu viel:** kürzen oder streichen – zuerst wo keine Besetzungslücke entsteht,
+  dann an den Tagen mit der niedrigsten Priorität (Fr/Sa/So = 1,5, sonst 1,0;
+  Abenddienst +0,25). Verstellbare Personen verlieren erst Vorbereitungszeit
+  außerhalb der Öffnung, dann 30′-Schritte (höchstens 1 h unter Grundplan), dann
+  ganze Dienste. Fester Rahmen: erst ganze Dienste (über den Monat verteilt).
+- **Zu wenig:** nur bei „Được điều chỉnh": in 30′-Schritten verlängern, zuerst wo
+  eine Besetzungslücke geschlossen wird, dann Fr–So abends; höchstens 60′ vor
+  Öffnung und 30′ nach Schluss. Reicht das nicht, ein neuer 2-h-Dienst an einem
+  Arbeitstag. Fester Rahmen bleibt kurz und wird als Warnung gemeldet.
+- **Wochenvertrag:** volle ISO-Wochen = Vertrag; eine Woche über zwei Monate wird
+  nach den Grundplan-Stunden der Tage im Monat geteilt (`src/lib/contract.ts`).
+- **Grenzen:** 10 h bezahlt je Tag, 6 Tage am Stück, Dienst ≥ 1,5 h, Pause nach
+  § 4 ArbZG mit fester Uhrzeit.
 
-**Freitag, Samstag und Sonntag: Nachfragegewicht 1,5; normale Tage: 1,0.**
-Das ist ein Optimierungsziel, keine Garantie für exakt 1,5-mal so viele
-Arbeitsstunden. Geschlossene Tage haben kein Gewicht; geöffnete Feiertage zählen
-wie Sonntag. Tagesziele werden **je ISO-Woche** auf die tatsächlich erreichbaren,
-zugeteilten Stunden normalisiert:
+Besetzungsregel Kenzo: Fr–So (und Feiertage) 18:00–21:00 mindestens zwei
+Personen. Asia Wok: keine Regel, der Bericht zeigt nur die Besetzung.
 
-```text
-Tagesziel = zugeteilte Stunden dieser Woche × Tagesgewicht
-           ÷ Summe der Gewichte ihrer geöffneten Tage
-```
+## Startbelegschaft (Stand September 2026)
 
-Diese Vergleichsziele ersetzen keine Vertragsprüfung: weniger zugeteilte Stunden
-senken auch die Vergleichsziele, beseitigen aber kein Vertragsdefizit. Gleiche
-6,5 h täglich, exakte Wochenverträge, Verfügbarkeit, Besetzungsgrenzen und ein
-striktes Tagesverhältnis von 1,5 sind nicht immer gleichzeitig erfüllbar.
-Nicht erreichte Ziele und Besetzungslücken müssen sichtbar bleiben; ein
-erzeugter Plan ist keine Zusage, dass alle Vorgaben erfüllt sind.
-
-## Laca und Pausen
-
-Die besondere Frühschicht **06:30–14:30 (Laca)** bleibt **keiner Person
-zugeordnet**. Der Nutzer hat keine Zuordnung gewünscht („không cần“).
-`fixedShift` beschreibt eine ausdrücklich eingetragene feste Schicht;
-die App soll keine Identität aus Namen oder Verträgen ableiten.
-
-Mit 30 Minuten unbezahlter Pause liefert dieses Fenster 7,5 h Arbeitszeit.
-Fünf unveränderte Dienste ergeben 37,5 h, sechs ergeben 45 h. Ein Vertrag
-von 39 h lässt sich damit allein nicht exakt erreichen. Ein solcher Rest ist
-getrennt auszuweisen, ohne Vertragsstunden still zu ändern.
-
-Pausen sind explizite Zeitintervalle innerhalb einer Schicht. Über 6 h bezahlter
-Arbeit fallen 30 Minuten Pause an, über 9 h 45 Minuten. Beispiel: 6,5 h Arbeit
-plus 30 Minuten Pause bedeuten 7 h Anwesenheit. Keine Arbeitsphase darf länger
-als sechs Stunden ohne Pause dauern. Die Mittagsschließung zwischen getrennten
-Diensten bleibt unbezahlte Unterbrechung. Alte oder bearbeitete lange Schichten
-ohne gültiges Pausenintervall benötigen Prüfung; bloße Anwesenheit ist kein
-Nachweis für Besetzung während einer Pause.
-
-## Bericht und Bedienung
-
-1. **Cài đặt:** Monat, Öffnungszeiten und Datumsausnahmen prüfen.
-2. **Nhân viên:** bestehende Wochenverträge und Verfügbarkeit prüfen.
-   Fehlende Stunden sind kein Anlass, Verträge automatisch umzuschreiben.
-3. **Lịch làm việc:** Plan erzeugen, danach Vertragsfehler und Besetzungsbericht
-   prüfen. Zeiten, explizite Pausen und manuelle Änderungen beeinflussen die
-   Besetzung erneut.
-4. **Bảng chấm công:** Stundenaufzeichnungen und Dienstpläne drucken.
-   Nach Änderungen an einem bereits gedruckten Stand auch die betroffenen
-   Ausdrucke ersetzen.
-
-`StaffingReport` erhält `analysis: ScheduleAnalysis`. Er zeigt je Datum und
-Wochentag Zielstunden, zugeteilte Stunden und deren Differenz. Je vollständiger
-ISO-Woche vergleicht er die durchschnittlichen Tagesstunden Fr–So mit Di–Do;
-Randwochen oder Wochen mit geschlossenen Vergleichstagen erhalten kein
-irreführendes Verhältnis. Bei null Stunden im Nenner ist es nicht berechenbar.
-Die Zielquote wird aus den Tageszielen gelesen, damit Feiertage berücksichtigt
-bleiben. Zusätzlich zeigt jeder Prüfbereich seine Zeiten, Ist-Besetzung,
-benötigte Unter-/Obergrenze und Abweichung. Ein erfüllter Prüfbereich ist keine
-Bestätigung der gesamten Vertrags- oder Pausenprüfung.
+Kenzo: Nguyễn Duy Hậu (Vollzeit 40 h/Woche, verstellbar), Phương Văn Trọng Hiếu
+(120 h/Monat, verstellbar), Ahmad Zia Omami (11 h/Monat, Fr–So 18–21 Uhr).
+Asia Wok: Nguyễn Duy Hậu (Minijob 40 h/Monat, Mo–Fr 12–14 Uhr – laut Betrieb
+eine andere Person mit gleichem Namen), Bùi Xuân Ngự (43 h/Monat, Do–Sa 17–19 Uhr,
+Rahmen bleibt, Fehlstunden werden gemeldet). Siehe `src/lib/sampleData.ts`.
 
 ## Entwicklung
-
-React, TypeScript, Vite, Tailwind CSS, date-fns und Vitest; Druck/PDF über Browser
-und PDF-Hilfen. Lokaler Start:
 
 ```bash
 npm install
 npm run dev
-```
-
-```bash
 npm run test
 npm run build
-npm run preview
 ```
 
-Persistenz über LocalStorage und optional Supabase (`store_data`), konfiguriert
-mit `VITE_SUPABASE_URL` und `VITE_SUPABASE_ANON_KEY`. `STORE_ID` muss je Filiale
-eindeutig sein. Die Passwortsperre im Client ersetzt keine Zugriffskontrolle.
+Persistenz über LocalStorage (Schlüssel je Filiale) und optional Supabase
+(`store_data`, eine Zeile je `store_id`), konfiguriert mit `VITE_SUPABASE_URL`
+und `VITE_SUPABASE_ANON_KEY`. `VITE_STORE_ID_PREFIX` (z. B. `test-`) lenkt lokal
+auf Testzeilen um. Die Passwortsperre im Client ersetzt keine Zugriffskontrolle.
 
 Wichtige Module:
 
-- `src/lib/weeklyScheduler.ts`: Wochenzuteilung und Schichtanordnung.
-- `src/lib/contract.ts`: Vertragsumrechnung und Wochenquoten.
-- `src/lib/workHours.ts`: Öffnungsblöcke, Montagsschließung und Ausnahmen.
-- `src/lib/staffing.ts`: Besetzungsfenster, Pausen und gewichtete Tagesziele.
-- `src/lib/analyze.ts`: tatsächliche Besetzung und Stundenvergleich.
-- `src/lib/validation.ts`: Vertrags- und Schichtprüfung.
-- `src/components/StaffingReport.tsx`: Besetzungsbericht aus der Analyse.
-- `src/lib/__tests__/`: Regressionstests; Erfolg einzelner Beispiele beweist
-  keine allgemeine Lösbarkeit aller möglichen Eingaben.
-
-`Schedule` enthält einen Monat. Verfügbarkeitsengpässe, feste Schichten,
-Monatsgrenzen und das Zeitraster können Ziele unerreichbar machen. Reststunden,
-Vertragsfehler, Besetzungslücken und Abweichungen vom Nachfrageziel sind getrennt
-zu beurteilen. Es gibt keine Garantie für eine global optimale Lösung.
+- `src/lib/stores.ts`: Filialen (Name, Anschrift, Öffnung, Besetzungsregeln, Startbelegschaft).
+- `src/lib/baseScheduler.ts`: Planung nach Grundplan.
+- `src/lib/contract.ts`: Monats-Soll und Wochenbudgets.
+- `src/lib/workHours.ts`: Öffnungsblöcke, Ruhetage, Feiertagsschließung, Ausnahmen.
+- `src/lib/analyze.ts`, `src/lib/validation.ts`: Besetzung und Vertragsprüfung.
+- `src/hooks/useSchedule.ts`: Zustand je Filiale, Umschalten, Sync.

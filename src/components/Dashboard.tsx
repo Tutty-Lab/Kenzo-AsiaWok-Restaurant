@@ -74,14 +74,10 @@ function underQuotaReason(emp: Employee | undefined, schedule: Schedule): string
   if (emp.startDate && emp.startDate.startsWith(prefix)) {
     parts.push(`vào làm từ ${shortDate(emp.startDate)} (các ngày trước không tính)`);
   }
-  if (emp.availableWeekdays && emp.availableWeekdays.length > 0 && emp.availableWeekdays.length < 6) {
-    parts.push(`chỉ làm ${emp.availableWeekdays.length} ngày cố định trong tuần`);
-  }
-  if (emp.maxDaysPerWeek != null && emp.maxDaysPerWeek < 6) {
-    parts.push(`giới hạn ${emp.maxDaysPerWeek} ngày/tuần`);
-  }
-  if (parts.length === 0) {
-    return "hợp đồng theo tuần cao hơn số ngày quán mở trong tháng — tháng này không đủ ngày để xếp đủ giờ.";
+  if (emp.adjustable) {
+    parts.push("đã kéo dài ca tối đa (60′ trước giờ mở, 30′ sau giờ đóng) và thêm ca 2h ở ngày đang làm mà vẫn chưa đủ — lịch cơ bản quá ít ngày");
+  } else {
+    parts.push("giữ khung lịch cơ bản (không bật „Được điều chỉnh”), tháng này khung đó chỉ có chừng ấy giờ — ngày lễ/ngày đóng cửa cũng bớt giờ");
   }
   return `do ${parts.join("; ")}.`;
 }
@@ -164,9 +160,8 @@ export function Dashboard({ store }: { store: UseScheduleReturn }) {
             })}
           </ul>
           <div className="mt-2 opacity-80">
-            App đã xếp kín các ngày hợp lệ trong từng tuần và chia đều giờ mỗi người. Không thể tự
-            chuyển giờ sang người/tuần khác vì sẽ vượt hợp đồng — muốn thêm giờ thì đổi ngày vào làm,
-            ngày nghỉ, availability hoặc hợp đồng của người đó.
+            App xếp theo lịch cơ bản của từng người và không bao giờ vượt hợp đồng. Muốn đủ giờ thì thêm
+            ngày/khung vào lịch cơ bản, bật „Được điều chỉnh", hoặc sửa hợp đồng ở tab Nhân viên.
           </div>
         </InfoNote>
       )}
@@ -192,9 +187,9 @@ export function Dashboard({ store }: { store: UseScheduleReturn }) {
             {peakGaps.length > 8 && <div className="opacity-70">… và {peakGaps.length - 8} ngày nữa</div>}
           </div>
           <div className="mt-2 opacity-80">
-            → Vì sao: tổng giờ trong ngày đủ định mức, nhưng phân bố theo giờ chưa khớp khung cao điểm
-            (18–20h, trưa CN, đóng cửa). Cách xử lý: tăng định mức/thêm người cho ngày đó, hoặc chấp
-            nhận vì lịch vẫn hợp lệ.
+            → Vì sao: lịch cơ bản và giờ hợp đồng của mọi người chưa phủ đủ khung yêu cầu của quán (
+            {store.storeConfig.staffingRules.map((rule) => `${rule.label} ${rule.when} ≥ ${rule.minStaff} người`).join("; ")}).
+            Cách xử lý: thêm khung vào lịch cơ bản của ai đó, sửa tay ca ngày đó, hoặc chấp nhận vì lịch vẫn hợp lệ.
           </div>
         </InfoNote>
       )}

@@ -50,6 +50,19 @@ export function calculatePaidMinutes(
   return endMinutes - startMinutes - pauseMinutes;
 }
 
+/**
+ * Bezahlte Minuten einer Anwesenheit, wenn die Pausenregel aufgeht – sonst 0.
+ * 7 h Anwesenheit => 6,5 h bezahlt (30′ Pause); 6,5 h Anwesenheit geht nicht:
+ * 6,5 h ohne Pause bräuchte 30′, 6 h mit 30′ Pause bräuchte keine.
+ */
+export function paidFromPresence(presenceMinutes: number): number {
+  for (const pause of [0, 30, 60]) {
+    const paid = presenceMinutes - pause;
+    if (paid > 0 && calculatePause(paid) === pause) return paid;
+  }
+  return 0;
+}
+
 /** Anwesenheit (inkl. Pause) aus bezahlter Zeit. */
 export function presenceFromPaid(paidMinutes: number): number {
   return paidMinutes + calculatePause(paidMinutes);

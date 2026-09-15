@@ -10,8 +10,6 @@ import { isScheduleYearAllowed, SCHEDULE_YEAR_RANGE_LABEL } from "../lib/years";
 import { weeksOfMonth } from "../lib/weeks";
 import { datesOfMonth } from "../lib/demand";
 import { monthLabel } from "../lib/shiftOps";
-import { effectiveWeekdayKey } from "../lib/workHours";
-import { publicHolidays } from "../lib/holidays";
 
 /** Dienstplan-Ausdruck (Monat oder eine Woche), evtl. auf eine Person gefiltert. */
 type ScheduleRange = {
@@ -25,20 +23,6 @@ type ScheduleRange = {
 
 export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
   const { schedule, isLocked, markWeekPrinted, unlockMonth, generate } = store;
-
-  const hasSplitSunday = useMemo(() => {
-    const holidays = publicHolidays(schedule.year);
-    for (const s of schedule.shifts) {
-      if (effectiveWeekdayKey(s.date, holidays) === "sunday") {
-        const count = schedule.shifts.filter(
-          (other) => other.date === s.date && other.employeeId === s.employeeId,
-        ).length;
-        // CN là ca liền (tab Tài liệu); ca dài ở CN là đúng hệ số 1,5, chỉ báo khi bị chia 2 ca.
-        if (count > 1) return true;
-      }
-    }
-    return false;
-  }, [schedule.year, schedule.shifts]);
 
   // Trình duyệt nhúng (Zalo, Messenger, Facebook …) không lưu được file tải thẳng.
   const inApp = useMemo(
@@ -371,7 +355,7 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
                   generate();
                 }}
                 className="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 active:bg-slate-100 shadow-sm"
-                title="Tạo lại lịch mới theo quy tắc ca liền Chủ nhật"
+                title="Tạo lại lịch theo lịch cơ bản của từng người"
               >
                 Tạo lại lịch
               </button>
@@ -424,29 +408,6 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
                   {openInBrowserHelp}
                 </div>
               )}
-            </div>
-          )}
-
-          {hasSplitSunday && (
-            <div className="mt-3 rounded-lg bg-blue-50 border border-blue-300 p-3 text-blue-950 text-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
-              <div>
-                <div className="font-semibold flex items-center gap-1.5 text-blue-900">
-                  <span>Chủ nhật đang bị chia 2 ca</span>
-                </div>
-                <p className="text-xs text-blue-800 mt-0.5">
-                  Chủ nhật/ngày lễ là <b>ca liền</b> (xem mục Tài liệu). Lịch này có người bị chia ca sáng/chiều vào Chủ nhật — bấm nút bên cạnh để tạo lại.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  if (isLocked) unlockMonth();
-                  generate();
-                }}
-                className="whitespace-nowrap rounded bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 active:bg-blue-800 shadow"
-              >
-                Cập nhật lại lịch chuẩn ngay
-              </button>
             </div>
           )}
 

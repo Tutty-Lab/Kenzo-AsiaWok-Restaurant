@@ -3,7 +3,7 @@
 // ============================================================================
 
 import type { Employee, Shift } from "../types";
-import { monthlyTargetMinutes, monthlyTargetMinutesFor, SCHEDULE_SLOT_MINUTES } from "./contract";
+import { MAX_PAID_MINUTES_PER_DAY, monthlyTargetMinutes, monthlyTargetMinutesFor, SCHEDULE_SLOT_MINUTES } from "./contract";
 import { calculatePause, minutesToShortHours } from "./time";
 import { maxConsecutiveRun } from "./consecutive";
 import { weekStartOf } from "./weeks";
@@ -43,11 +43,10 @@ export type ValidationResult = {
 };
 
 /**
- * Höchste bezahlte Zeit an einem Tag: 9 Stunden. Liegt unter der Grenze des
- * Arbeitszeitgesetzes (§ 3 ArbZG: bis zu 10 Stunden, wenn im Halbjahr auf 8
- * ausgeglichen).
+ * Höchste bezahlte Zeit an einem Tag: 10 Stunden (§ 3 ArbZG: bis zu 10 Stunden,
+ * wenn im Halbjahr auf 8 ausgeglichen).
  */
-const MAX_PAID_MINUTES = 9 * 60;
+const MAX_PAID_MINUTES = MAX_PAID_MINUTES_PER_DAY;
 const MAX_CONSECUTIVE_DAYS = 6;
 
 export function validateSchedule(
@@ -186,7 +185,7 @@ export function validateSchedule(
             message: `${emp.name}: tuần ${week} xếp ${total.paid / 60}h, vượt hợp đồng ${emp.weeklyHours}h/tuần.`,
           });
         }
-        const maxDays = Math.min(6, emp.maxDaysPerWeek ?? 6);
+        const maxDays = 6;
         if (total.dates.size > maxDays) {
           errors.push({
             employeeId: emp.id,

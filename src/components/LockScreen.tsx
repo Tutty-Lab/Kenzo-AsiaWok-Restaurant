@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { login } from "../lib/auth";
 
-/** Sperrbildschirm: ohne korrektes Passwort ist die App nicht sichtbar. */
+/**
+ * Sperrbildschirm: ohne korrektes Passwort ist die App nicht sichtbar. Geprüft
+ * wird das Passwort der zuletzt gewählten Filiale (Umschalten: Tab „Cài đặt").
+ */
 export function LockScreen({ onUnlock }: { onUnlock: () => void }) {
   const [value, setValue] = useState("");
   const [error, setError] = useState(false);

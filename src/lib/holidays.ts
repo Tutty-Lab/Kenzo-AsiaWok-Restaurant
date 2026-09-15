@@ -1,13 +1,10 @@
 // ============================================================================
-// Gesetzliche Feiertage in BAYERN – der Laden liegt in Berg bei Neumarkt in der
-// Oberpfalz (92348). Bewegliche Feiertage über die Osterformel (Gauß/Computus).
+// Gesetzliche Feiertage in NORDRHEIN-WESTFALEN – beide Läden liegen in Warburg
+// (34414, Kreis Höxter). Bewegliche Feiertage über die Osterformel (Gauß).
 //
-// Bayern ist katholisch geprägt und hat mehr Feiertage als die meisten Länder:
-// Heilige Drei Könige (6.1.), Fronleichnam (Ostern+60) und Allerheiligen
-// (1.11.). Mariä Himmelfahrt (15.8.) gilt in Bayern nur in überwiegend
-// katholischen Gemeinden – die Oberpfalz/Neumarkt ist katholisch, deshalb hier
-// dabei. KEIN Feiertag ist der Reformationstag (nur evangelische Länder) und
-// der Buß- und Bettag (nur Sachsen).
+// NRW hat Fronleichnam (Ostern+60) und Allerheiligen (1.11.). KEIN Feiertag
+// sind Heilige Drei Könige (BW/BY/ST), Mariä Himmelfahrt (BY/SL),
+// Reformationstag (nur evangelisch geprägte Länder) und Buß- und Bettag (SN).
 // ============================================================================
 import { addDays, format } from "date-fns";
 
@@ -34,31 +31,28 @@ function iso(date: Date): string {
   return format(date, "yyyy-MM-dd");
 }
 
-
-/** Datum -> Name aller gesetzlichen Feiertage in Bayern eines Jahres. */
+/** Datum -> Name aller gesetzlichen Feiertage in NRW eines Jahres. */
 export function publicHolidayNames(year: number): Map<string, string> {
   const easter = easterSunday(year);
   const map = new Map<string, string>();
   map.set(iso(new Date(year, 0, 1)), "Neujahr");
-  map.set(iso(new Date(year, 0, 6)), "Heilige Drei Könige"); // Bayern, 6.1.
   map.set(iso(addDays(easter, -2)), "Karfreitag");
   map.set(iso(addDays(easter, 1)), "Ostermontag");
   map.set(iso(new Date(year, 4, 1)), "Tag der Arbeit");
   map.set(iso(addDays(easter, 39)), "Christi Himmelfahrt");
   map.set(iso(addDays(easter, 50)), "Pfingstmontag");
-  map.set(iso(addDays(easter, 60)), "Fronleichnam"); // Bayern, Ostern+60
-  map.set(iso(new Date(year, 7, 15)), "Mariä Himmelfahrt"); // Bayern (kath. Gemeinden), 15.8.
+  map.set(iso(addDays(easter, 60)), "Fronleichnam"); // NRW, Ostern+60
   map.set(iso(new Date(year, 9, 3)), "Tag der Deutschen Einheit");
-  map.set(iso(new Date(year, 10, 1)), "Allerheiligen"); // Bayern, 1.11.
+  map.set(iso(new Date(year, 10, 1)), "Allerheiligen"); // NRW, 1.11.
   map.set(iso(new Date(year, 11, 25)), "1. Weihnachtstag");
   map.set(iso(new Date(year, 11, 26)), "2. Weihnachtstag");
   return map;
 }
 
 /**
- * Alle gesetzlichen Feiertage in Bayern eines Jahres als ISO-Set
- * "yyyy-MM-dd". Leitet sich aus publicHolidayNames ab, damit Set und Namen
- * niemals auseinanderlaufen können.
+ * Alle gesetzlichen Feiertage in NRW eines Jahres als ISO-Set "yyyy-MM-dd".
+ * Leitet sich aus publicHolidayNames ab, damit Set und Namen niemals
+ * auseinanderlaufen können.
  */
 export function publicHolidays(year: number): Set<string> {
   return new Set(publicHolidayNames(year).keys());
