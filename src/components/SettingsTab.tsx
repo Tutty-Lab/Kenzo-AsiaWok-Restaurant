@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import { minutesToTime, timeToMinutes } from "../lib/time";
 import { MONTH_NAMES_VI } from "../lib/dateFormat";
-import { isScheduleYearAllowed, SCHEDULE_YEARS, SCHEDULE_YEAR_RANGE_LABEL } from "../lib/years";
 import {
   WEEKDAY_LABELS_VI,
   WEEKDAY_SHORT_VI,
@@ -14,7 +13,6 @@ import {
 import type { DayBlocks, DayWindow, WorkHoursConfig } from "../lib/workHours";
 import { publicHolidayNames } from "../lib/holidays";
 import { isoLabel } from "../lib/shiftOps";
-import { STORES } from "../lib/stores";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -143,10 +141,7 @@ function BlockRow({
 }
 
 export function SettingsTab({ store }: { store: UseScheduleReturn }) {
-  const { schedule, updateMeta, upsertOverride, removeOverride, changePassword, storeId, setStoreId } = store;
-  // Checklist G: chỉ 2026–2030. Năm cũ ngoài khoảng (dữ liệu đã lưu) vẫn hiện để
-  // ô chọn không trống, nhưng không chọn lại được và không tạo/in lịch được.
-  const years = isScheduleYearAllowed(schedule.year) ? SCHEDULE_YEARS : [schedule.year, ...SCHEDULE_YEARS];
+  const { schedule, updateMeta, upsertOverride, removeOverride, changePassword } = store;
 
   // ---- Ngày đặc biệt (Ausnahmen) ----
   const monthDates = useMemo(
@@ -224,23 +219,6 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
         <h2 className="text-base font-semibold text-slate-900 mb-4">Cài đặt chung</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="md:col-span-2">
-            <Field label="Cửa hàng">
-              {/* Mỗi quán một bộ dữ liệu riêng: nhân viên, giờ mở, lịch, mật khẩu. */}
-              <select
-                className={inputClass}
-                value={storeId}
-                onChange={(e) => setStoreId(e.target.value)}
-              >
-                {STORES.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </div>
-
-          <div className="md:col-span-2">
             <Field label="Địa chỉ (in trên tờ chấm công)">
               <div className="w-full rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
                 {schedule.address}
@@ -248,37 +226,9 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
             </Field>
           </div>
 
-          <Field label="Tháng">
-            <select
-              className={inputClass}
-              value={schedule.month}
-              onChange={(e) => updateMeta({ month: Number(e.target.value) })}
-            >
-              {MONTH_NAMES_VI.map((name, i) => (
-                <option key={name} value={i + 1}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </Field>
-
-          <Field label="Năm">
-            <select
-              className={inputClass}
-              value={schedule.year}
-              onChange={(e) => updateMeta({ year: Number(e.target.value) })}
-            >
-              {years.map((y) => (
-                <option key={y} value={y} disabled={!isScheduleYearAllowed(y)}>
-                  {y}
-                  {isScheduleYearAllowed(y) ? "" : " (không hỗ trợ)"}
-                </option>
-              ))}
-            </select>
-            <span className={`mt-1 block text-xs ${isScheduleYearAllowed(schedule.year) ? "text-slate-500" : "text-rose-700"}`}>
-              Chỉ xếp và in lịch cho các năm {SCHEDULE_YEAR_RANGE_LABEL}.
-            </span>
-          </Field>
+          <div className="md:col-span-2 text-xs text-slate-500">
+            Tháng/năm chọn chung cho cả 2 quán ở thanh trên cùng.
+          </div>
         </div>
       </section>
 

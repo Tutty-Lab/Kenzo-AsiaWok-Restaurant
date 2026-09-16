@@ -17,7 +17,7 @@ import { createManualShift, updateShiftTimes } from "../lib/shiftOps";
 import { normalizeWorkHours, resolveDay, type DateOverride, type OverrideMap } from "../lib/workHours";
 import { DAY_WEIGHTS, datesOfMonth, type WeekdayKey } from "../lib/demand";
 import { publicHolidays } from "../lib/holidays";
-import { initialScheduleFor, loadStoreId, saveStoreId, storeById, type StoreConfig } from "../lib/stores";
+import { initialScheduleFor, storeById, type StoreConfig } from "../lib/stores";
 import { contractOpenDays } from "../lib/contract";
 import { weekStartOf } from "../lib/weeks";
 
@@ -111,8 +111,7 @@ function newEmployeeId(): string {
   return `emp-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 }
 
-export function useSchedule() {
-  const [storeId, setStoreIdState] = useState<string>(() => loadStoreId());
+export function useSchedule(storeId: string) {
   const storeConfig = storeById(storeId);
   const [initial] = useState(() => localStateOf(storeId));
   const [schedule, setSchedule] = useState<Schedule>(initial.schedule);
@@ -134,11 +133,9 @@ export function useSchedule() {
 
   // Letzter Stand für Zugriffe außerhalb des Renders (siehe Erst-Upload).
   const latest = useRef<PersistedState>({ schedule, originalShifts, passwordHash });
-  const storeIdRef = useRef(storeId);
   useEffect(() => {
     latest.current = { schedule, originalShifts, passwordHash };
-    storeIdRef.current = storeId;
-  }, [storeId, schedule, originalShifts, passwordHash]);
+  }, [schedule, originalShifts, passwordHash]);
 
   // Beim Start und nach jedem Filialwechsel den Stand dieser Filiale aus der
   // gemeinsamen Datenbank holen. Vorher darf nicht hochgeladen werden, sonst
@@ -186,18 +183,6 @@ export function useSchedule() {
     }, 1000);
     return () => window.clearTimeout(timer);
   }, [storeId, schedule, originalShifts, passwordHash]);
-
-  /** Filiale wechseln: lokalen Stand der neuen Filiale zeigen, dann laden. */
-  const setStoreId = useCallback((next: string) => {
-    if (next === storeIdRef.current) return;
-    saveStoreId(next);
-    const local = localStateOf(next);
-    setSchedule(local.schedule);
-    setOriginalShifts(local.originalShifts);
-    setPasswordHash(local.passwordHash);
-    setGenError(null);
-    setStoreIdState(next);
-  }, []);
 
   // Offene Tage des Monats als ISO-Liste – Grundlage für das Monats-Soll von
   // Wochenverträgen (contract.ts / validateSchedule).
@@ -274,17 +259,16 @@ export function useSchedule() {
    * sehen und nicht den alten aus der Datenbank.
    */
   const pushNow = useCallback(async (state: PersistedState) => {
-    const id = storeIdRef.current;
-    saveState(id, state);
+    saveState(storeId, state);
     if (!isRemoteConfigured || !hydrated.current) return;
     setRemoteStatus("saving");
     try {
-      await saveRemote(id, state);
+      await saveRemote(storeId, state);
       setRemoteStatus("idle");
     } catch {
       setRemoteStatus("error");
     }
-  }, []);
+  }, [storeId]);
 
   /** Passwort der Filiale ändern. Gibt eine Meldung zurück oder null bei Erfolg. */
   const changePassword = useCallback(
@@ -514,7 +498,6 @@ export function useSchedule() {
   return {
     storeId,
     storeConfig,
-    setStoreId,
     schedule,
     originalShifts,
     validation,

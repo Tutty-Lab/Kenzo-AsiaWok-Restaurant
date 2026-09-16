@@ -119,7 +119,7 @@ describe("Kenzo – Stammbelegschaft über zwei Jahre", () => {
   });
 });
 
-describe("Asia Wok – fester Rahmen", () => {
+describe("Asia Wok – Belegschaft (nur aw-1 Hậu fester Rahmen)", () => {
   it("sonntags und an Feiertagen kein Dienst", () => {
     const { shifts } = plan(wok, 2026, 10);
     const holidays = publicHolidays(2026);
@@ -140,13 +140,14 @@ describe("Asia Wok – fester Rahmen", () => {
     expect(weekStartOf(dropped[0])).not.toBe(weekStartOf(dropped[1]));
   });
 
-  it("Ngự (43 h/Monat, Do–Sa 17–19) bleibt kurz: Warnung, kein Fehler", () => {
+  it("Ngự (43 h/Monat, adjustable): erreicht das Soll, keine Warnung", () => {
+    // Betrieb: Grundpläne sind Priorität, nicht starr – Ngự ist adjustable, der
+    // Scheduler verlängert/ergänzt (Do–Sa, Priorität 17:00–19:00) bis ans Soll.
     const { shifts, validation } = plan(wok);
     expect(validation.errors.filter((e) => e.severity !== "warning")).toEqual([]);
     const ngu = of(shifts, "aw-2");
-    expect(hours(ngu)).toBeLessThan(43);
-    for (const s of ngu) expect([s.startMinutes, s.endMinutes]).toEqual([t("17:00"), t("19:00")]);
-    expect(validation.errors.some((e) => e.employeeId === "aw-2" && e.severity === "warning")).toBe(true);
+    expect(Math.abs(hours(ngu) - 43)).toBeLessThan(0.5); // Soll auf 30′ genau erreicht
+    expect(validation.errors.some((e) => e.employeeId === "aw-2" && e.severity === "warning")).toBe(false);
   });
 });
 

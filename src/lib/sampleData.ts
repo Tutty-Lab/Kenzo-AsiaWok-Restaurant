@@ -57,7 +57,7 @@ export function kenzoEmployees(): Employee[] {
       name: "Ahmad Zia Omami",
       employmentType: "MINIJOB",
       targetMinutes: 11 * 60,
-      adjustable: false,
+      adjustable: true,
       baseSchedule: days(["friday", "saturday", "sunday"], [block("18:00", "21:00")]),
     },
   ];
@@ -66,11 +66,27 @@ export function kenzoEmployees(): Employee[] {
 /**
  * Asia Wok Warburg, Paderborner Tor 126a, 34414 Warburg.
  *
- * Ngự „17:00–18:30 hoặc 19:00", Rahmen bleibt (Betrieb: „Giữ khung, chấp nhận
- * thiếu"): Grundplan bis 19:00, die fehlenden Stunden erscheinen als Warnung.
+ * Grundpläne sind PRIORITÄT, nicht starr: alle sind adjustable, damit der
+ * Scheduler zum Soll hin verlängert/ergänzt. Einzige Ausnahme ist Nguyễn Duy
+ * Hậu (aw-1) – der arbeitet auch im Kenzo und bleibt hier fest (kein Konflikt).
  */
 export function asiaWokEmployees(): Employee[] {
   return [
+    {
+      // Inhaber, arbeitet selbst in der Küche mit – volle Öffnungszeit an allen
+      // sechs Öffnungstagen (Mo–Sa 11:00–19:30) als PRIORITÄT. adjustable: der
+      // Grundplan ist bevorzugt, der Scheduler darf zum Soll hin anpassen.
+      id: "aw-owner",
+      name: "Chủ quán (Bếp)",
+      employmentType: "VOLLZEIT",
+      targetMinutes: 0,
+      weeklyHours: 48,
+      adjustable: true,
+      baseSchedule: days(
+        ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"],
+        [block("11:00", "19:30")],
+      ),
+    },
     {
       id: "aw-1",
       name: "Nguyễn Duy Hậu",
@@ -84,7 +100,7 @@ export function asiaWokEmployees(): Employee[] {
       name: "Bùi Xuân Ngự",
       employmentType: "MINIJOB",
       targetMinutes: 43 * 60,
-      adjustable: false,
+      adjustable: true,
       baseSchedule: days(["thursday", "friday", "saturday"], [block("17:00", "19:00")]),
     },
   ];
