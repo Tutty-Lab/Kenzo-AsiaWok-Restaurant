@@ -114,10 +114,10 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
                 aria-label="Tháng"
                 value={primary.schedule.month}
                 onChange={(e) => setPeriod({ month: Number(e.target.value) })}
-                className="rounded-md bg-slate-800 px-2 py-1.5 text-sm font-medium text-white"
+                className="rounded-md border border-slate-600 bg-white px-2 py-1.5 text-sm font-medium text-slate-900"
               >
                 {MONTH_NAMES_VI.map((name, i) => (
-                  <option key={name} value={i + 1} className="text-slate-900">
+                  <option key={name} value={i + 1} className="bg-white text-slate-900">
                     {name}
                   </option>
                 ))}
@@ -126,13 +126,13 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
                 aria-label="Năm"
                 value={primary.schedule.year}
                 onChange={(e) => setPeriod({ year: Number(e.target.value) })}
-                className="rounded-md bg-slate-800 px-2 py-1.5 text-sm font-medium text-white"
+                className="rounded-md border border-slate-600 bg-white px-2 py-1.5 text-sm font-medium text-slate-900"
               >
                 {(isScheduleYearAllowed(primary.schedule.year)
                   ? SCHEDULE_YEARS
                   : [primary.schedule.year, ...SCHEDULE_YEARS]
                 ).map((y) => (
-                  <option key={y} value={y} className="text-slate-900">
+                  <option key={y} value={y} className="bg-white text-slate-900">
                     {y}
                   </option>
                 ))}
@@ -270,7 +270,7 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
             >
               ← Quay lại {TABS.find((t) => t.id === tab)?.label}
             </button>
-            <DocsTab store={primary.storeConfig} />
+            <DocsTab stores={stores.map((s) => s.storeConfig)} />
           </div>
         ) : (
           <>

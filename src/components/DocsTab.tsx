@@ -78,23 +78,34 @@ function PriorityTable() {
   );
 }
 
-export function DocsTab({ store }: { store: StoreConfig }) {
+export function DocsTab({ stores }: { stores: StoreConfig[] }) {
+  // Hai quán KHÁC giờ mở và khác quy tắc số người, nên mục „giờ mở" và „số
+  // người tối thiểu" in riêng cho từng quán; các mục còn lại (luật, lịch cơ
+  // bản, thuật toán, giờ nghỉ) dùng chung.
   return (
     <div className="max-w-3xl space-y-4">
       <div className="rounded-lg bg-slate-900 p-4 text-white sm:p-5">
-        <h1 className="text-lg font-semibold">Tài liệu — {store.name}</h1>
+        <h1 className="text-lg font-semibold">Tài liệu — nguyên tắc xếp lịch</h1>
         <p className="mt-1 text-sm text-slate-300">
-          {store.address}. Mô tả đúng thuật toán đang chạy; bảng giờ mở và ưu tiên bên dưới lấy thẳng từ code. Thứ tự
+          Mô tả đúng thuật toán đang chạy; bảng giờ mở và ưu tiên bên dưới lấy thẳng từ code. Thứ tự
           ưu tiên khi xung đột: <b>luật</b> → <b>hợp đồng</b> (không bao giờ vượt) → <b>lịch cơ bản</b> → <b>số người
           tối thiểu</b> → <b>ngày đông</b>.
         </p>
       </div>
 
       <Section title="1. Giờ mở cửa">
-        <OpeningTable store={store} />
+        {stores.map((store) => (
+          <div key={store.id} className="space-y-1">
+            <div className="text-sm font-semibold text-slate-900">
+              {store.name} <span className="font-normal text-slate-500">· {store.address}</span>
+            </div>
+            <OpeningTable store={store} />
+          </div>
+        ))}
         <p className="text-slate-600">
           Giờ mở của từng tháng chỉnh ở <b>Cài đặt → Nâng cao</b>; ngày đóng cửa hay giờ riêng chỉnh ở <b>Ngày đặc biệt</b>.
-          Hai quán dùng dữ liệu riêng: chuyển quán bằng nút ở đầu trang.
+          Hai quán dùng dữ liệu riêng nhưng hiện cùng lúc: mọi tab đều có phần của Kenzo và phần của Asia Wok,
+          tháng/năm chọn chung ở thanh trên cùng.
         </p>
       </Section>
 
@@ -133,16 +144,21 @@ export function DocsTab({ store }: { store: StoreConfig }) {
       </Section>
 
       <Section title="5. Số người tối thiểu">
-        {store.staffingRules.length === 0 ? (
-          <p>Quán này <b>không đặt số người tối thiểu</b>. Tab Độ phủ chỉ hiện ai đang làm từng 30′.</p>
-        ) : (
-          <ul className="list-disc space-y-1 pl-5">
-            {store.staffingRules.map((rule) => (
-              <li key={rule.label}><b>{rule.label}</b> ({rule.when}): ít nhất <b>{rule.minStaff} người</b> đang làm (người đang nghỉ giữa ca không tính).</li>
-            ))}
-            <li>Thiếu người là <b>cảnh báo</b> (lịch vẫn hợp lệ): lịch cơ bản và giờ hợp đồng có thể không đủ phủ.</li>
-          </ul>
-        )}
+        {stores.map((store) => (
+          <div key={store.id} className="space-y-1">
+            <div className="text-sm font-semibold text-slate-900">{store.name}</div>
+            {store.staffingRules.length === 0 ? (
+              <p>Quán này <b>không đặt số người tối thiểu</b>. Tab Độ phủ chỉ hiện ai đang làm từng 30′.</p>
+            ) : (
+              <ul className="list-disc space-y-1 pl-5">
+                {store.staffingRules.map((rule) => (
+                  <li key={rule.label}><b>{rule.label}</b> ({rule.when}): ít nhất <b>{rule.minStaff} người</b> đang làm (người đang nghỉ giữa ca không tính).</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+        <p>Thiếu người là <b>cảnh báo</b> (lịch vẫn hợp lệ): lịch cơ bản và giờ hợp đồng có thể không đủ phủ.</p>
       </Section>
 
       <Section title="6. Giờ nghỉ">
