@@ -9,19 +9,25 @@ import { DocsTab } from "./components/DocsTab";
 import { Dashboard } from "./components/Dashboard";
 import { LockScreen } from "./components/LockScreen";
 import { isAuthenticated, logout } from "./lib/auth";
-import { monthLabel } from "./lib/shiftOps";
 import { MONTH_NAMES_VI } from "./lib/dateFormat";
 import { isScheduleYearAllowed, SCHEDULE_YEARS } from "./lib/years";
 
 type TabId = "einstellungen" | "mitarbeiter" | "dienstplan" | "stundenzettel";
 
-/** Die Arbeits-Tabs. „Tài liệu" ist bewusst KEIN Tab – es öffnet sich über die Kopfzeile. */
+/**
+ * Sichtbar als Tab sind die drei, mit denen täglich gearbeitet wird
+ * (MAIN_TABS); Cài đặt und Tài liệu stecken im Menü ☰ oben rechts (wie die Demo).
+ */
 const TABS: { id: TabId; label: string }[] = [
-  { id: "einstellungen", label: "Cài đặt" },
+  { id: "stundenzettel", label: "Chấm công" },
+  { id: "dienstplan", label: "Lịch" },
   { id: "mitarbeiter", label: "Nhân viên" },
-  { id: "dienstplan", label: "Lịch làm việc" },
-  { id: "stundenzettel", label: "Bảng chấm công" },
+  { id: "einstellungen", label: "Cài đặt" },
 ];
+const MAIN_TABS: TabId[] = ["stundenzettel", "dienstplan", "mitarbeiter"];
+
+/** Merkt sich, welcher Laden zuletzt angezeigt wurde (nur Komfort). */
+const VIEW_KEY = "stundenzettel-app:view";
 
 export default function App() {
   const [unlocked, setUnlocked] = useState(() => isAuthenticated());
@@ -32,15 +38,45 @@ export default function App() {
 
 function MainApp({ onLogout }: { onLogout: () => void }) {
   // Beide Filialen laufen gleichzeitig – jede mit eigenem State, eigener
-  // Persistenz und eigener Sync. Angezeigt werden sie untereinander.
+  // Persistenz und eigener Sync. Angezeigt wird die in der Reihe über der
+  // Übersicht gewählte; erzeugt wird für beide zusammen.
   const kenzo = useSchedule("kenzo");
   const wok = useSchedule("asiawok");
   const stores = [kenzo, wok];
-  // Monat/Jahr sind für beide gleich (der Ausdruck muss zusammenpassen). Der
-  // Kopf steuert beide; angezeigt wird der Stand der ersten Filiale.
+  // Monat/Jahr sind für beide gleich (der Ausdruck muss zusammenpassen).
   const primary = kenzo;
 
-  const [tab, setTab] = useState<TabId>("einstellungen");
+  const [viewId, setViewId] = useState<string>(() => {
+    try {
+      return localStorage.getItem(VIEW_KEY) ?? "kenzo";
+    } catch {
+      return "kenzo";
+    }
+  });
+  const chooseStore = (id: string) => {
+    setViewId(id);
+    try {
+      localStorage.setItem(VIEW_KEY, id);
+    } catch {
+      // egal – nur eine Bequemlichkeit
+    }
+  };
+  const view = stores.find((s) => s.storeId === viewId) ?? kenzo;
+
+  const [tab, setTab] = useState<TabId>("stundenzettel");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshApp = async () => {
+    setRefreshing(true);
+    try {
+      const reg = await navigator.serviceWorker?.getRegistration();
+      // Höchstens 3 s auf die Update-Prüfung warten (schlechtes Netz).
+      await Promise.race([reg?.update(), new Promise((resolve) => setTimeout(resolve, 3000))]);
+    } catch {
+      // egal – trotzdem neu laden
+    }
+    window.location.reload();
+  };
   /** Trang Tài liệu mở riêng; đóng lại thì về đúng tab đang làm. */
   const [docsOpen, setDocsOpen] = useState(false);
 
@@ -54,8 +90,7 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
     for (const s of stores) s.updateMeta(patch);
   };
 
-  // „Tạo lịch làm việc" sitzt über den Tabs – erreichbar von jedem Tab aus. Popup
-  // statt window.confirm: eingebettete Browser (Messenger, Zalo) schlucken den.
+  // Popup statt window.confirm: eingebettete Browser (Messenger, Zalo) schlucken den.
   const [genDialogOpen, setGenDialogOpen] = useState(false);
   // Kurze Erfolgsmeldung nach dem Erzeugen. genStamp steigt bei jedem
   // erfolgreichen Lauf; der Effekt liest DANACH die (frische) Prüfung beider
@@ -78,132 +113,182 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
     return () => window.clearTimeout(t);
   }, [genStampSum]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /** Kurzer Stand eines Ladens für den Umschalter. */
+  const storeStatus = (s: UseScheduleReturn) =>
+    s.schedule.shifts.length === 0
+      ? "chưa tạo lịch"
+      : s.validation.errors.some((e) => e.severity !== "warning")
+        ? "có lỗi"
+        : s.validation.errors.length > 0
+          ? `${s.validation.errors.length} cảnh báo`
+          : "ổn";
+
   return (
     <div className="min-h-screen">
-      <header className="no-print bg-slate-900 text-white shadow sticky top-0 z-30">
-        <div className="mx-auto max-w-[1500px] px-3 sm:px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <h1 className="text-base sm:text-lg font-semibold">
+      {/* iPhone-App vom Home-Bildschirm (black-translucent): Inhalt unter die Statusleiste schieben. */}
+      <header className="no-print bg-slate-900 text-white shadow sticky top-0 z-30 pt-[env(safe-area-inset-top)]">
+        <div className="mx-auto max-w-[1500px] px-3 sm:px-4 py-3 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="truncate text-base sm:text-lg font-semibold" title={`bản ${__BUILD__}`}>
               Lịch làm việc &amp; Bảng chấm công
-              <span className="ml-2 align-middle text-[10px] font-normal text-slate-400">bản {__BUILD__}</span>
             </h1>
-            <p className="text-xs text-slate-300">
-              Kenzo · Asia Wok · {monthLabel(primary.schedule.year, primary.schedule.month)}
-              {(() => {
-                const anyError = stores.some((s) => s.remoteStatus === "error");
-                const anySaving = stores.some((s) => s.remoteStatus === "saving");
-                const anyOn = stores.some((s) => s.remoteStatus !== "off");
-                if (!anyOn) return null;
-                return (
-                  <span className={anyError ? "ml-2 text-rose-300" : "ml-2 text-slate-400"}>
-                    ·{" "}
-                    {anySaving
-                      ? "đang đồng bộ…"
-                      : anyError
-                        ? "lỗi đồng bộ — dữ liệu chỉ lưu trên máy này"
-                        : "đã đồng bộ"}
-                  </span>
-                );
-              })()}
-            </p>
+            {stores.some((s) => s.remoteStatus === "error") && (
+              <p className="text-xs text-rose-300">Lỗi đồng bộ — dữ liệu chỉ lưu trên máy này</p>
+            )}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Tháng/năm dùng chung cho cả 2 quán – bản in phải cùng kỳ. */}
-            <div className="inline-flex items-center gap-1.5" aria-label="Chọn kỳ">
-              <select
-                aria-label="Tháng"
-                value={primary.schedule.month}
-                onChange={(e) => setPeriod({ month: Number(e.target.value) })}
-                className="rounded-md border border-slate-600 bg-white px-2 py-1.5 text-sm font-medium text-slate-900"
-              >
-                {MONTH_NAMES_VI.map((name, i) => (
-                  <option key={name} value={i + 1} className="bg-white text-slate-900">
-                    {name}
-                  </option>
-                ))}
-              </select>
-              <select
-                aria-label="Năm"
-                value={primary.schedule.year}
-                onChange={(e) => setPeriod({ year: Number(e.target.value) })}
-                className="rounded-md border border-slate-600 bg-white px-2 py-1.5 text-sm font-medium text-slate-900"
-              >
-                {(isScheduleYearAllowed(primary.schedule.year)
-                  ? SCHEDULE_YEARS
-                  : [primary.schedule.year, ...SCHEDULE_YEARS]
-                ).map((y) => (
-                  <option key={y} value={y} className="bg-white text-slate-900">
-                    {y}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {/* Aus dem Menü geöffnete Seite: steht direkt neben dem Menü, mit ✕ zurück. */}
+            {(docsOpen || !MAIN_TABS.includes(tab)) && (
+              <span className="inline-flex items-center gap-1 rounded-md bg-white py-1.5 pl-3 pr-1 text-sm font-medium text-slate-900">
+                {docsOpen ? "Tài liệu" : TABS.find((t) => t.id === tab)?.label}
+                <button
+                  type="button"
+                  onClick={() => openTab("stundenzettel")}
+                  aria-label="Đóng"
+                  className="rounded px-1.5 text-slate-400 hover:text-slate-900"
+                >
+                  ✕
+                </button>
+              </span>
+            )}
+            {/* Tải lại: als App vom Home-Bildschirm gibt es keine Browserleiste zum Neuladen. */}
             <button
               type="button"
-              onClick={() => setDocsOpen((open) => !open)}
-              aria-pressed={docsOpen}
-              className={`rounded px-3 py-2 text-sm ${docsOpen ? "bg-white text-slate-900" : "bg-slate-700 hover:bg-slate-600"}`}
+              onClick={() => void refreshApp()}
+              disabled={refreshing}
+              aria-label="Tải lại"
+              title="Tải lại"
+              className="flex h-9 w-9 items-center justify-center rounded bg-slate-700 text-lg leading-none hover:bg-slate-600 disabled:opacity-60"
             >
-              Tài liệu
+              <span className={refreshing ? "inline-block animate-spin" : "inline-block"}>↻</span>
             </button>
-            <button
-              onClick={() => {
-                if (confirm("Xoá toàn bộ dữ liệu của cả 2 quán?")) {
-                  for (const s of stores) s.resetAll();
-                }
-              }}
-              className="rounded bg-slate-700 px-3 py-2 text-sm hover:bg-slate-600"
-            >
-              Xoá dữ liệu
-            </button>
-            <button
-              onClick={() => {
-                logout();
-                onLogout();
-              }}
-              className="rounded bg-slate-700 px-3 py-2 text-sm hover:bg-slate-600"
-            >
-              Đăng xuất
-            </button>
+            {/* Menu: alles, was nicht täglich gebraucht wird. */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setMenuOpen((open) => !open)}
+                aria-expanded={menuOpen}
+                aria-haspopup="menu"
+                className={`rounded px-3 py-2 text-sm font-medium ${menuOpen ? "bg-white text-slate-900" : "bg-slate-700 hover:bg-slate-600"}`}
+              >
+                ☰ Menu
+              </button>
+              {menuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+                  <div
+                    role="menu"
+                    className="absolute right-0 z-50 mt-2 w-52 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 text-sm text-slate-800 shadow-lg"
+                  >
+                    {(
+                      [
+                        ["Cài đặt", () => openTab("einstellungen")],
+                        ["Tài liệu", () => setDocsOpen(true)],
+                        [
+                          "Đăng xuất",
+                          () => {
+                            logout();
+                            onLogout();
+                          },
+                        ],
+                      ] as const
+                    ).map(([label, action]) => (
+                      <button
+                        key={label}
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          action();
+                          setMenuOpen(false);
+                        }}
+                        className="block w-full px-4 py-2 text-left hover:bg-slate-50"
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </header>
 
-      <div className="no-print mx-auto max-w-[1500px] px-3 sm:px-4 pt-4 space-y-4">
-        {stores.map((s) => (
-          <StoreSection key={s.storeId} store={s}>
-            <Dashboard store={s} />
-          </StoreSection>
-        ))}
-      </div>
-
-      <nav className="no-print mx-auto max-w-[1500px] px-3 sm:px-4 mt-4">
-        <div className="flex flex-wrap gap-2">
-          {TABS.map((t) => {
-            const active = !docsOpen && tab === t.id;
+      <div className="no-print mx-auto max-w-[1500px] px-3 sm:px-4 pt-4 space-y-3">
+        {/* Quán đang xem – hai nút kèm trạng thái từng quán. */}
+        <div role="tablist" aria-label="Quán" className="grid grid-cols-2 gap-2">
+          {stores.map((s) => {
+            const active = s.storeId === view.storeId;
             return (
               <button
-                key={t.id}
-                onClick={() => openTab(t.id)}
-                aria-current={active ? "page" : undefined}
-                className={`px-3.5 py-2 text-sm font-medium rounded-full border ${
-                  active
-                    ? "bg-slate-900 text-white border-slate-900"
-                    : "bg-white text-slate-600 border-slate-200 hover:text-slate-900 hover:border-slate-300"
+                key={s.storeId}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => chooseStore(s.storeId)}
+                className={`rounded-xl border px-3 py-2 text-left ${
+                  active ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700 hover:border-slate-400"
                 }`}
               >
-                {t.label}
+                <div className="text-sm font-semibold">{s.storeConfig.shortName}</div>
+                <div className={`text-xs ${active ? "text-slate-300" : "text-slate-500"}`}>{storeStatus(s)}</div>
               </button>
             );
           })}
-          <button
-            type="button"
-            onClick={() => setGenDialogOpen(true)}
-            disabled={stores.every((s) => s.schedule.employees.length === 0)}
-            className="ml-auto rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
-          >
-            Tạo lịch làm việc
-          </button>
+        </div>
+        <Dashboard store={view} />
+      </div>
+
+      <nav className="no-print mx-auto max-w-[1500px] px-3 sm:px-4 mt-4">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Chấm công · Lịch · Nhân viên als Segment; Tháng + Tạo lịch rechts. */}
+          <div className="inline-flex rounded-xl border border-slate-200 bg-white p-0.5">
+            {TABS.filter((t) => MAIN_TABS.includes(t.id)).map((t) => {
+              const active = !docsOpen && tab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => openTab(t.id)}
+                  aria-current={active ? "page" : undefined}
+                  className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium ${
+                    active ? "bg-slate-900 text-white" : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            {/* Tháng/năm dùng chung cho cả 2 quán – bản in phải cùng kỳ. */}
+            <select
+              aria-label="Tháng"
+              value={`${primary.schedule.year}-${primary.schedule.month}`}
+              onChange={(e) => {
+                const [year, month] = e.target.value.split("-").map(Number);
+                setPeriod({ year, month });
+              }}
+              className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm text-slate-800"
+            >
+              {(isScheduleYearAllowed(primary.schedule.year) ? SCHEDULE_YEARS : [primary.schedule.year, ...SCHEDULE_YEARS]).flatMap(
+                (year) =>
+                  MONTH_NAMES_VI.map((name, i) => (
+                    <option key={`${year}-${i + 1}`} value={`${year}-${i + 1}`}>
+                      {name}/{year}
+                    </option>
+                  )),
+              )}
+            </select>
+            {/* „Tạo lịch" – wichtigste Aktion. */}
+            <button
+              type="button"
+              onClick={() => setGenDialogOpen(true)}
+              disabled={stores.every((s) => s.schedule.employees.length === 0)}
+              className="whitespace-nowrap rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-40"
+            >
+              Tạo lịch
+            </button>
+          </div>
         </div>
       </nav>
 
@@ -241,7 +326,7 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
                 {s.storeConfig.shortName}: {s.genError}
               </div>
             ))}
-          {/* Erfolgsmeldung nach „Tạo lịch"; Details zu Warnungen/Fehlern stehen aufklappbar im Dashboard. */}
+          {/* Erfolgsmeldung nach „Tạo lịch"; Details stehen aufklappbar in der Übersicht. */}
           {toast && (
             <div
               role="status"
@@ -260,50 +345,34 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
         </div>
       )}
 
-      <main className="mx-auto max-w-[1500px] px-3 sm:px-4 py-4">
+      <main className="mx-auto max-w-[1500px] px-3 sm:px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
         {docsOpen ? (
           <div className="no-print">
-            <button
-              type="button"
-              onClick={() => setDocsOpen(false)}
-              className="mb-3 rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
-            >
-              ← Quay lại {TABS.find((t) => t.id === tab)?.label}
-            </button>
             <DocsTab stores={stores.map((s) => s.storeConfig)} />
           </div>
         ) : (
           <>
             <div className="no-print space-y-6">
-              {tab === "einstellungen" &&
-                stores.map((s) => (
-                  <StoreSection key={s.storeId} store={s}>
-                    <SettingsTab store={s} />
-                  </StoreSection>
-                ))}
-              {tab === "mitarbeiter" &&
-                stores.map((s) => (
-                  <StoreSection key={s.storeId} store={s}>
-                    <EmployeesTab store={s} />
-                  </StoreSection>
-                ))}
+              {tab === "einstellungen" && (
+                <StoreSection store={view}>
+                  <SettingsTab store={view} />
+                </StoreSection>
+              )}
+              {tab === "mitarbeiter" && (
+                <StoreSection store={view}>
+                  <EmployeesTab store={view} />
+                </StoreSection>
+              )}
             </div>
             {/*
-              „Bảng chấm công" enthält den Druckbereich (Stundenzettel UND
-              Dienstplan) und darf deshalb NICHT im no-print-Container liegen: der
-              wird beim Drucken auf display:none gesetzt, und ein Kind kann das
-              nicht zurücknehmen. Der Tab blendet seine Bedienelemente selbst aus.
-              Der Dienstplan liegt aus demselben Grund außerhalb – er bringt sein
-              eigenes no-print mit und bleibt so unabhängig von dieser Reihenfolge.
+              „Chấm công" enthält den Druckbereich (Stundenzettel UND Dienstplan)
+              und darf deshalb NICHT im no-print-Container liegen. Der Tab blendet
+              seine Bedienelemente selbst aus und gibt wie bisher beide Läden aus.
             */}
             {tab === "dienstplan" && (
-              <div className="space-y-6">
-                {stores.map((s) => (
-                  <StoreSection key={s.storeId} store={s}>
-                    <ScheduleTab store={s} />
-                  </StoreSection>
-                ))}
-              </div>
+              <StoreSection store={view}>
+                <ScheduleTab store={view} />
+              </StoreSection>
             )}
             {tab === "stundenzettel" && <StundenzettelTab stores={stores} />}
           </>

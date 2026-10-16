@@ -176,16 +176,18 @@ export async function elementsToPdf(
 }
 
 /**
- * Tải file PDF trực tiếp về máy.
- * Đặt kiểu MIME thành application/octet-stream với tên file .pdf để các trình duyệt
- * (đặc biệt là Safari iOS, Chrome trên iPhone/Android) tự động kích hoạt trình tải file
- * và lưu thẳng vào máy (thư mục Tệp / Downloads) thay vì mở sang link/tab mới.
- * KHÔNG dùng trong trình duyệt nhúng (Zalo, Messenger …) – ở đó xem sharePdf.
+ * PDF-Blob direkt als Datei herunterladen (Attribut download).
+ *
+ * MIME bleibt application/pdf: Früher stand hier application/octet-stream –
+ * ein In-App-Browser, der „download" ignoriert (Messenger/Zalo-WebView),
+ * öffnete die Datei dann als TEXT, also eine Seite voller Zeichensalat. Mit
+ * application/pdf zeigt er im schlimmsten Fall das PDF an. Echte Browser
+ * (Chrome, Safari, Firefox) speichern wegen „download" trotzdem.
  */
 export async function deliver(blob: Blob, filename: string): Promise<void> {
   if (typeof document === "undefined") return;
-  const octetBlob = new Blob([blob], { type: "application/octet-stream" });
-  const url = URL.createObjectURL(octetBlob);
+  const pdf = blob.type === "application/pdf" ? blob : new Blob([blob], { type: "application/pdf" });
+  const url = URL.createObjectURL(pdf);
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
